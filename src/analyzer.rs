@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::collections::{HashMap, HashSet};
-use std::fs::DirEntry;
 use image_hasher::{Hasher, ImageHash};
 use eyre::Result;
 
@@ -36,37 +35,20 @@ pub fn list_dir(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-type Hash = ImageHash;
-
-fn make_hash(hasher: &Hasher, entry: &DirEntry) -> Option<Hash> {
-    //sha256::try_digest(entry.path())
-    let image = image::open(entry.path()).ok()?;
-    Some(hasher.hash_image(&image))
-}
-
-type Files = HashMap<Hash, PathBuf>;
-
-pub type Hashes = HashMap<PathBuf, Hash>;
-
-fn analyze_files_rec(hasher: &Hasher, m: &mut Hashes, dir: &Path) -> Result<()> {
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            analyze_files_rec(hasher, m, &path)?;
-        } else {
-            tracing::info!("analyzing {:?}", path);
-            if let Some(hash) = make_hash(hasher, &entry) {
-                m.insert(path, hash);
-            }
-        }
-    }
-    Ok(())
-}
+pub type Hashes = HashMap<PathBuf, ImageHash>;
 
 pub fn analyze_files(hasher: &Hasher, dir: &Path) -> Result<Hashes> {
     let mut m = HashMap::new();
-    analyze_files_rec(hasher, &mut m, dir)?;
+
+    for path in list_dir(dir) {
+        tracing::info!("analyzing {:?}", path);
+
+        if let Ok(image) = image::open(&path) {
+            let hash = hasher.hash_image(&image);
+            m.insert(path, hash);
+        }
+    }
+
     Ok(m)
 }
 
@@ -96,8 +78,10 @@ pub fn create_groups(hashes: &Hashes, max_dist: u32) -> Vec<Vec<PathBuf>> {
     result
 }
 
+type Files = HashMap<String, PathBuf>;
+
 /// returns true if all files in this dir are duplicates
-pub fn check_dirs(hasher: &Hasher, root: &Path, visited: &mut Files, dir: &Path, remove: bool) -> Result<bool> {
+pub fn check_dirs(root: &Path, visited: &mut Files, dir: &Path, remove: bool) -> Result<bool> {
     // all files in this dir are duplicates
     let mut all_dups = true;
 
@@ -105,18 +89,11 @@ pub fn check_dirs(hasher: &Hasher, root: &Path, visited: &mut Files, dir: &Path,
         let entry = entry?;
         let path = entry.path();
         if path.is_dir() {
-            all_dups &= check_dirs(hasher, root, visited, &path, remove)?;
+            all_dups &= check_dirs(root, visited, &path, remove)?;
         } else {
             let path = entry.path().strip_prefix(root).unwrap().to_path_buf();
-            if let Some(hash) = make_hash(hasher, &entry) {
-                for other_hash in visited.keys() {
-                    if hash.dist(other_hash) < 10 {
-                        let other = visited.get(other_hash).unwrap();
-                        println!("Duplicate found {:?} -> {:?}", path, other);
-                    }
-                }
-                visited.insert(hash, path);
-                /*if let Some(other) = visited.get(&hash) {
+            if let Ok(hash) = sha256::try_digest(entry.path()) {
+                if let Some(other) = visited.get(&hash) {
                     println!("Duplicate found {:?} -> {:?}", path, other);
                     if remove {
                         println!("removing {:?}", entry.path());
@@ -125,7 +102,7 @@ pub fn check_dirs(hasher: &Hasher, root: &Path, visited: &mut Files, dir: &Path,
                 } else {
                     all_dups &= false;
                     visited.insert(hash, path);
-                }*/
+                }
             }
         }
     }
