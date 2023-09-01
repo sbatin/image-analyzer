@@ -1,0 +1,20 @@
+[package]
+name = "fs-analyzer"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+sha256 = "1.4.0"
+image = "0.24.7"
+image_hasher = "1.2.0"
+serde = "1.0.188"
+serde_json = "1.0.105"
+axum = "0.6.20"
+eyre = "0.6.8"
+tower = "0.4.13"
+tower-http = { version = "0.4.3", features = ["full"] }
+tokio = { version = "1.32.0", features = ["full"] }
+tracing = "0.1.37"
+tracing-subscriber = "0.3.17"
