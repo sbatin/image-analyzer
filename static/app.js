@@ -20,7 +20,7 @@ const app = Vue.createApp({
       images: [],
       progress: false,
       similarImages: undefined,
-      distance: 5,
+      distance: 10,
     }
   },
   mounted() {

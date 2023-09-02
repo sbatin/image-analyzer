@@ -21,7 +21,7 @@
         <div class="container-fluid">
           <a class="navbar-brand" href="#">{{ path }}</a>
           <ul class="navbar-nav me-auto mb-2 mb-lg-0"></ul>
-          <input type="text" class="form-control" style="max-width: 100px; margin-right: 10px;" v-model="distance"/>
+          <input type="text" class="form-control me-2" style="max-width:100px" v-model="distance"/>
           <button class="btn btn-success" type="button" @click="analyze" :disabled="progress">
             <span v-if="progress" class="spinner-border spinner-border-sm" aria-hidden="true"></span>
             <span v-if="progress" role="status">Analyzing...</span>
@@ -36,7 +36,7 @@
           </div>
         </div>
         <div v-if="similarImages">
-          <div class="row row-cols-auto img-group" v-for="group of similarImages">
+          <div class="row row-cols-auto img-group gy-4" v-for="group of similarImages">
             <span class="col" v-for="src of group">
               <img class="img-thumbnail" :src="`image?path=${src}`" :title="src"/>
             </span>
