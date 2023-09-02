@@ -1,8 +1,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::collections::{HashMap, HashSet};
-use image_hasher::{Hasher, ImageHash};
+use std::collections::HashMap;
+use image_hasher::{Hasher, ImageHash, HasherConfig, HashAlg};
 use eyre::Result;
+
+use crate::disjoint_set;
 
 fn list_dir_rec(files: &mut Vec<PathBuf>, dir: &Path) -> Result<()> {
     for entry in fs::read_dir(dir)? {
@@ -35,46 +37,57 @@ pub fn list_dir(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-pub type Hashes = HashMap<PathBuf, ImageHash>;
+pub fn make_engine() -> Hasher {
+    HasherConfig::new()
+        .hash_size(16, 16)
+        .hash_alg(HashAlg::DoubleGradient)
+        .to_hasher()
+}
 
-pub fn analyze_files(hasher: &Hasher, dir: &Path) -> Result<Hashes> {
-    let mut m = HashMap::new();
+pub struct AnalyzedData(Vec<(PathBuf, ImageHash)>);
+
+pub fn analyze_files(hasher: &Hasher, dir: &Path) -> Result<AnalyzedData> {
+    let mut result = Vec::new();
 
     for path in list_dir(dir) {
         tracing::info!("analyzing {:?}", path);
 
         if let Ok(image) = image::open(&path) {
             let hash = hasher.hash_image(&image);
-            m.insert(path, hash);
+            result.push((path, hash));
         }
     }
 
-    Ok(m)
+    Ok(AnalyzedData(result))
 }
 
-pub fn create_groups(hashes: &Hashes, max_dist: u32) -> Vec<Vec<PathBuf>> {
-    let mut result = Vec::new();
-    let mut ignore = HashSet::new();
+pub fn create_groups(hashes: &AnalyzedData, max_dist: u32) -> Vec<Vec<PathBuf>> {
+    let xs = &hashes.0;
+    let mut ds = disjoint_set::DisjointSet::new();
 
-    for (k1, h1) in hashes.iter() {
-        if ignore.contains(k1) {
-            continue;
-        }
+    for (k, _) in xs {
+        ds.insert(k.to_path_buf());
+    }
 
-        let mut matches = Vec::new();
-        for (k2, h2) in hashes.iter() {
-            if !ignore.contains(k2) && k1 != k2 && h1.dist(h2) <= max_dist {
-                matches.push(k2.to_path_buf());
-                ignore.insert(k2);
+    for (k1, h1) in xs {
+        for (k2, h2) in xs {
+            if k1 != k2 && h1.dist(h2) <= max_dist {
+                ds.union(k1, k2);
             }
-        }
-
-        if !matches.is_empty() {
-            matches.push(k1.to_path_buf());
-            result.push(matches);
         }
     }
 
+    let mut result: Vec<_> = ds
+        .to_vec()
+        .into_iter()
+        .filter(|v| v.len() > 1)
+        .collect();
+
+    for v in &mut result {
+        v.sort();
+    }
+
+    result.sort();
     result
 }
 

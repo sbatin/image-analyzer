@@ -1,11 +1,11 @@
 mod analyzer;
+mod disjoint_set;
 
 use std::{
     path::PathBuf,
     sync::Arc,
     collections::HashMap,
 };
-use image_hasher::{HasherConfig, HashAlg};
 use serde::Deserialize;
 use eyre::Result;
 use axum::{
@@ -35,25 +35,21 @@ struct AnalyzeCommand {
 
 async fn task_analyzer(mut rx: mpsc::Receiver<AnalyzeCommand>) {
     tracing::info!("manager task started");
-
-    let hasher = Arc::new(HasherConfig::new()
-        .hash_size(16, 16)
-        .hash_alg(HashAlg::DoubleGradient)
-        .to_hasher());
-
+    
+    let engine = Arc::new(analyzer::make_engine());
     let mut cache = HashMap::new();
 
     while let Some(command) = rx.recv().await {
         tracing::info!("analyze request received {:?}", command.req);
 
-        let hasher = hasher.clone();
+        let engine = engine.clone();
 
-        let hashes = match cache.get(&command.req.path) {
+        let data = match cache.get(&command.req.path) {
             Some(data) => Ok(data),
             None => {
                 let path = command.req.path.clone();
                 let task_result = task::spawn_blocking(move || {
-                    let result = analyzer::analyze_files(&hasher, &path);
+                    let result = analyzer::analyze_files(&engine, &path);
                     tracing::info!("analyze task completed {:?}", path);
                     result
                 }).await.unwrap();
@@ -61,13 +57,13 @@ async fn task_analyzer(mut rx: mpsc::Receiver<AnalyzeCommand>) {
                 task_result.map(|hashes| {
                     cache
                         .entry(command.req.path)
-                        .or_insert(hashes) as &analyzer::Hashes
+                        .or_insert(hashes) as &_
                 })
             }
         };
 
-        if let Ok(hashes) = hashes {
-            let result = analyzer::create_groups(hashes, command.req.dist);
+        if let Ok(data) = data {
+            let result = analyzer::create_groups(data, command.req.dist);
             if let Err(_) = command.tx.send(result) {
                 tracing::error!("unable to send response back to the client");
             }
