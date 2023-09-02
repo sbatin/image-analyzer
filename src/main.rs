@@ -3,12 +3,13 @@ mod analyzer;
 use std::{
     path::PathBuf,
     sync::Arc,
+    collections::HashMap,
 };
 use image_hasher::{HasherConfig, HashAlg};
 use serde::Deserialize;
 use eyre::Result;
 use axum::{
-    http::Request,
+    http::{Request, StatusCode},
     extract::{Query, State},
     routing::{get, get_service, post},
     response::Json,
@@ -16,8 +17,10 @@ use axum::{
 };
 use tower::ServiceExt;
 use tower_http::services;
-use tokio::task::{self, JoinHandle};
-use tokio::sync::{mpsc, oneshot};
+use tokio::{
+    task::{self, JoinHandle},
+    sync::{mpsc, oneshot},
+};
 
 #[derive(Debug, Deserialize)]
 struct AnalyzeRequest {
@@ -38,22 +41,38 @@ async fn task_analyzer(mut rx: mpsc::Receiver<AnalyzeCommand>) {
         .hash_alg(HashAlg::DoubleGradient)
         .to_hasher());
 
+    let mut cache = HashMap::new();
+
     while let Some(command) = rx.recv().await {
         tracing::info!("analyze request received {:?}", command.req);
 
         let hasher = hasher.clone();
-        let path = command.req.path;
 
-        let join_handle = task::spawn_blocking(move || {
-            analyzer::analyze_files(&hasher, &path)
-        });
+        let hashes = match cache.get(&command.req.path) {
+            Some(data) => Ok(data),
+            None => {
+                let path = command.req.path.clone();
+                let task_result = task::spawn_blocking(move || {
+                    let result = analyzer::analyze_files(&hasher, &path);
+                    tracing::info!("analyze task completed {:?}", path);
+                    result
+                }).await.unwrap();
 
-        let hashes = join_handle.await.unwrap().unwrap();
-        let result = analyzer::create_groups(&hashes, command.req.dist);
-        tracing::info!("analyze task completed");
+                task_result.map(|hashes| {
+                    cache
+                        .entry(command.req.path)
+                        .or_insert(hashes) as &analyzer::Hashes
+                })
+            }
+        };
 
-        if let Err(_) = command.tx.send(result) {
-            tracing::error!("unable to send response back to the client");
+        if let Ok(hashes) = hashes {
+            let result = analyzer::create_groups(hashes, command.req.dist);
+            if let Err(_) = command.tx.send(result) {
+                tracing::error!("unable to send response back to the client");
+            }
+        } else {
+            tracing::error!("analyze task failed");
         }
     }
 
@@ -79,13 +98,17 @@ async fn list_folder(Query(params): Query<PathParams>) -> Json<Vec<PathBuf>> {
 async fn analyze(
     State(state): State<AppState>,
     Query(req): Query<AnalyzeRequest>,
-) -> Json<Vec<Vec<PathBuf>>> {
+) -> Result<Json<Vec<Vec<PathBuf>>>, StatusCode> {
     let (tx, rx) = oneshot::channel();
 
-    // TODO: handle errors properly
-    state.task_sender.send(AnalyzeCommand { req, tx }).await.unwrap();
-    let result = rx.await.unwrap();
-    Json(result)
+    state
+        .task_sender
+        .send(AnalyzeCommand { req, tx })
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let result = rx.await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(result))
 }
 
 #[derive(Clone)]
