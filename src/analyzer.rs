@@ -10,7 +10,7 @@ fn list_dir_rec(files: &mut Vec<PathBuf>, dir: &Path) -> Result<()> {
         let path = entry.path();
         if path.is_dir() {
             if let Err(_) = list_dir_rec(files, &path) {
-                tracing::error!("error reading folder contents {:?}", path);
+                tracing::error!("error reading folder content {:?}", path);
             }
         } else {
             if let Some(ext) = path.extension() {
@@ -81,7 +81,7 @@ pub fn create_groups(hashes: &Hashes, max_dist: u32) -> Vec<Vec<PathBuf>> {
 type Files = HashMap<String, PathBuf>;
 
 /// returns true if all files in this dir are duplicates
-pub fn check_dirs(root: &Path, visited: &mut Files, dir: &Path, remove: bool) -> Result<bool> {
+pub fn check_dirs(visited: &mut Files, dir: &Path, remove: bool) -> Result<bool> {
     // all files in this dir are duplicates
     let mut all_dups = true;
 
@@ -89,19 +89,18 @@ pub fn check_dirs(root: &Path, visited: &mut Files, dir: &Path, remove: bool) ->
         let entry = entry?;
         let path = entry.path();
         if path.is_dir() {
-            all_dups &= check_dirs(root, visited, &path, remove)?;
+            all_dups &= check_dirs(visited, &path, remove)?;
         } else {
-            let path = entry.path().strip_prefix(root).unwrap().to_path_buf();
             if let Ok(hash) = sha256::try_digest(entry.path()) {
                 if let Some(other) = visited.get(&hash) {
-                    println!("Duplicate found {:?} -> {:?}", path, other);
+                    println!("duplicate found {:?} -> {:?}", entry.path(), other);
                     if remove {
                         println!("removing {:?}", entry.path());
                         fs::remove_file(entry.path())?;
                     }
                 } else {
                     all_dups &= false;
-                    visited.insert(hash, path);
+                    visited.insert(hash, entry.path());
                 }
             }
         }
