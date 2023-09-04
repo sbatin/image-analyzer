@@ -35,7 +35,7 @@ struct AnalyzeCommand {
 
 async fn task_analyzer(mut rx: mpsc::Receiver<AnalyzeCommand>) {
     tracing::info!("manager task started");
-    
+
     let engine = Arc::new(analyzer::make_engine());
     let mut cache = HashMap::new();
 
@@ -121,17 +121,17 @@ async fn main() -> Result<()> {
     let shared_state = AppState { task_sender };
 
     let app = Router::new()
-        .route("/", get_service(services::ServeFile::new("static/index.html")))
+        .route("/", get_service(services::ServeFile::new("client/dist/index.html")))
         .route("/image", get(|request: Request<_>| {
             // TODO: handle errors here
             let params: Query<PathParams> = Query::try_from_uri(request.uri()).unwrap();
             let service = services::ServeFile::new(&params.path);
             service.oneshot(request)
         }))
-        .route("/images", get_service(services::ServeFile::new("static/images.html")))
         .route("/list_folder", get(list_folder))
         .route("/analyze", post(analyze))
-        .nest_service("/static", services::ServeDir::new("static"))
+        .nest_service("/static", services::ServeDir::new("client/dist"))
+        .nest_service("/assets", services::ServeDir::new("client/dist/assets"))
         .with_state(shared_state);
 
     axum::Server::bind(&"0.0.0.0:3000".parse()?)
