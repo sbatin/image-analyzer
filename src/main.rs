@@ -1,12 +1,13 @@
 mod analyzer;
 mod disjoint_set;
 
+use analyzer::{AnalyzedData, Groups};
 use std::{
     path::PathBuf,
     sync::Arc,
     collections::HashMap,
 };
-use serde::Deserialize;
+use serde::{Serialize, Deserialize};
 use eyre::Result;
 use axum::{
     http::{Request, StatusCode},
@@ -19,7 +20,7 @@ use tower::ServiceExt;
 use tower_http::services;
 use tokio::{
     task::{self, JoinHandle},
-    sync::{mpsc, oneshot},
+    sync::{mpsc, oneshot, watch},
 };
 
 #[derive(Debug, Deserialize)]
@@ -28,47 +29,87 @@ struct AnalyzeRequest {
     path: PathBuf,
 }
 
+#[derive(Serialize)]
+#[serde(tag = "type")]
+enum AnalyzeResponse {
+    Pending { progress: usize },
+    Completed { data: Groups },
+}
+
+/// internal type used by task manager
+enum TaskResponse<T> {
+    Pending(usize),
+    Completed(Result<T>),
+}
+
+impl<T> TaskResponse<T> {
+    fn map<U, F: FnOnce(T) -> U>(self, op: F) -> TaskResponse<U> {
+        match self {
+            Self::Pending(progress) => TaskResponse::Pending(progress),
+            Self::Completed(data) => TaskResponse::Completed(data.map(op)),
+        }
+    }
+}
+
 struct AnalyzeCommand {
     req: AnalyzeRequest,
-    tx: oneshot::Sender<Vec<Vec<PathBuf>>>,
+    tx: oneshot::Sender<TaskResponse<Groups>>,
 }
+
+type TaskResult = Result<AnalyzedData>;
 
 async fn task_analyzer(mut rx: mpsc::Receiver<AnalyzeCommand>) {
     tracing::info!("manager task started");
 
     let engine = Arc::new(analyzer::make_engine());
-    let mut cache = HashMap::new();
+    let mut cache: HashMap<PathBuf, AnalyzedData> = HashMap::new();
+    let mut tasks: HashMap<PathBuf, (JoinHandle<TaskResult>, watch::Receiver<usize>)> = HashMap::new();
 
     while let Some(command) = rx.recv().await {
         tracing::info!("analyze request received {:?}", command.req);
 
         let engine = engine.clone();
 
-        let data = match cache.get(&command.req.path) {
-            Some(data) => Ok(data),
+        let data: TaskResponse<&AnalyzedData> = match cache.get(&command.req.path) {
+            Some(data) => TaskResponse::Completed(Ok(data)),
             None => {
-                let path = command.req.path.clone();
-                let task_result = task::spawn_blocking(move || {
-                    let result = analyzer::analyze_files(&engine, &path);
-                    tracing::info!("analyze task completed {:?}", path);
-                    result
-                }).await.unwrap();
-
-                task_result.map(|hashes| {
-                    cache
-                        .entry(command.req.path)
-                        .or_insert(hashes) as &_
-                })
+                match tasks.remove(&command.req.path) {
+                    Some((join_handle, mut rx)) => {
+                        if let Ok(_) = rx.changed().await {
+                            let progress = *rx.borrow();
+                            tracing::info!(progress, "waiting for existing task {:?}", command.req.path);
+                            // still in progress: put handles back to tasks
+                            tasks.insert(command.req.path, (join_handle, rx));
+                            TaskResponse::Pending(progress)
+                        } else {
+                            tracing::info!("existing task completed {:?}", command.req.path);
+                            let result = join_handle.await.unwrap();
+                            TaskResponse::Completed(result.map(|data| {
+                                cache
+                                    .entry(command.req.path)
+                                    .or_insert(data) as &_
+                            }))
+                        }
+                    }
+                    None => {
+                        tracing::info!("no task found, creating a new one {:?}", command.req.path);
+                        let path = command.req.path.clone();
+                        let (tx, rx) = watch::channel(0);
+                        let join_handle = task::spawn_blocking(move || {
+                            let result = analyzer::analyze_files(&engine, &path, tx);
+                            tracing::info!("analyze task completed {:?}", path);
+                            result
+                        });
+                        tasks.insert(command.req.path, (join_handle, rx));
+                        TaskResponse::Pending(0)
+                    }
+                }
             }
         };
 
-        if let Ok(data) = data {
-            let result = analyzer::create_groups(data, command.req.dist);
-            if let Err(_) = command.tx.send(result) {
-                tracing::error!("unable to send response back to the client");
-            }
-        } else {
-            tracing::error!("analyze task failed");
+        let resp = data.map(|data| analyzer::create_groups(data, command.req.dist));
+        if let Err(_) = command.tx.send(resp) {
+            tracing::error!("unable to send response back to the client");
         }
     }
 
@@ -94,7 +135,7 @@ async fn list_folder(Query(params): Query<PathParams>) -> Json<Vec<PathBuf>> {
 async fn analyze(
     State(state): State<AppState>,
     Query(req): Query<AnalyzeRequest>,
-) -> Result<Json<Vec<Vec<PathBuf>>>, StatusCode> {
+) -> Result<Json<AnalyzeResponse>, StatusCode> {
     let (tx, rx) = oneshot::channel();
 
     state
@@ -104,7 +145,18 @@ async fn analyze(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let result = rx.await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(Json(result))
+    match result {
+        TaskResponse::Pending(progress) => {
+            Ok(Json(AnalyzeResponse::Pending { progress }))
+        }
+        TaskResponse::Completed(Ok(data)) => {
+            Ok(Json(AnalyzeResponse::Completed { data }))
+        }
+        TaskResponse::Completed(Err(_)) => {
+            tracing::error!("analyze task failed");
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
 }
 
 #[derive(Clone)]

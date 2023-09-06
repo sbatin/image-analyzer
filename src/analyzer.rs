@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use image_hasher::{Hasher, ImageHash, HasherConfig, HashAlg};
 use eyre::Result;
+use tokio::sync::watch;
 
 use crate::disjoint_set;
 
@@ -45,22 +46,28 @@ pub fn make_engine() -> Hasher {
 
 pub struct AnalyzedData(Vec<(PathBuf, ImageHash)>);
 
-pub fn analyze_files(hasher: &Hasher, dir: &Path) -> Result<AnalyzedData> {
+pub fn analyze_files(hasher: &Hasher, dir: &Path, tx: watch::Sender<usize>) -> Result<AnalyzedData> {
     let mut result = Vec::new();
+    let files = list_dir(dir);
+    let n = files.len();
 
-    for path in list_dir(dir) {
-        tracing::info!("analyzing {:?}", path);
+    for (i, path) in files.into_iter().enumerate() {
+        let progress = i * 100 / n;
+        tracing::info!(path = path.to_str(), progress, "analyzing");
 
         if let Ok(image) = image::open(&path) {
             let hash = hasher.hash_image(&image);
             result.push((path, hash));
+            tx.send(progress)?;
         }
     }
 
     Ok(AnalyzedData(result))
 }
 
-pub fn create_groups(hashes: &AnalyzedData, max_dist: u32) -> Vec<Vec<PathBuf>> {
+pub type Groups = Vec<Vec<PathBuf>>;
+
+pub fn create_groups(hashes: &AnalyzedData, max_dist: u32) -> Groups {
     let xs = &hashes.0;
     let mut ds = disjoint_set::DisjointSet::new();
 

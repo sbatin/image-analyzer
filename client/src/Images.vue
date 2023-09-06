@@ -1,20 +1,29 @@
 <script>
 import * as bootstrap from 'bootstrap';
 import ImageList from './ImageList.vue';
+import API from './api';
 
 export default {
   methods: {
+    async analyzePoll() {
+      const resp = await API.analyze(this.path, this.distance);
+      switch (resp.type) {
+        case 'Pending': {
+          this.progress = resp.progress;
+          await this.analyzePoll();
+          break;
+        }
+        case 'Completed': {
+          this.pending = false;
+          this.similarImages = resp.data;
+          return;
+        }
+      }
+    },
     analyze() {
-      this.progress = true;
-      fetch(`/analyze?path=${this.path}&dist=${this.distance}`, {
-        method: 'POST',
-      })
-        .then((resp) => resp.json())
-        .then((data) => {
-          console.log('similar images', data);
-          this.progress = false;
-          this.similarImages = data;
-        });
+      this.pending = true;
+      this.progress = 0;
+      this.analyzePoll();
     },
     openImage(src) {
       this.selectedImage = src;
@@ -26,7 +35,8 @@ export default {
     const params = new URLSearchParams(search);
     return {
       path: params.get('path'),
-      progress: false,
+      progress: 0,
+      pending: false,
       distance: 10,
       images: [],
       similarImages: undefined,
@@ -36,11 +46,9 @@ export default {
   },
   mounted() {
     this.modal = new bootstrap.Modal('#image-popup');
-    fetch(`/list_folder?path=${this.path}`)
-      .then((resp) => resp.json())
-      .then((images) => {
-        this.images = images;
-      });
+    API.listDir(this.path).then((images) => {
+      this.images = images;
+    });
   },
   components: { ImageList }
 }
@@ -51,11 +59,14 @@ export default {
       <a class="navbar-brand" href="#">Image DeDup</a>
       <span class="navbar-text">{{ path }}</span>
       <ul class="navbar-nav me-auto mb-2 mb-lg-0"></ul>
+      <div v-if="pending" class="progress mx-3" role="progressbar" style="width:400px">
+        <div class="progress-bar" :style="`width: ${progress}%`"></div>
+      </div>
       <input type="text" class="form-control me-2" style="max-width:100px" v-model="distance"/>
-      <button class="btn btn-success" type="button" @click="analyze" :disabled="progress">
-        <span v-if="progress" class="spinner-border spinner-border-sm" aria-hidden="true"></span>
-        <span v-if="progress" role="status">Analyzing...</span>
-        <span v-if="!progress">Analyze</span>
+      <button class="btn btn-success" type="button" @click="analyze" :disabled="pending">
+        <span v-if="pending" class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+        <span v-if="pending" role="status">Analyzing...</span>
+        <span v-if="!pending">Analyze</span>
       </button>
     </div>
   </nav>
