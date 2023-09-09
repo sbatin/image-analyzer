@@ -26,7 +26,7 @@ where
         Self { tasks: HashMap::new() }
     }
 
-    pub async fn submit<F>(&mut self, key: K, f: F) -> &mut (JoinHandle<R>, watch::Receiver<P>)
+    pub fn submit<F>(&mut self, key: K, f: F) -> &mut (JoinHandle<R>, watch::Receiver<P>)
     where
         F: FnOnce(K, watch::Sender<P>) -> R + Send + 'static,
         K: Clone,

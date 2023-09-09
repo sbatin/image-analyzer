@@ -58,13 +58,12 @@ async fn task_analyzer(mut rx: mpsc::Receiver<AnalyzeCommand>) {
     let mut manager: TaskManager<PathBuf, usize, TaskResult> = TaskManager::new();
 
     while let Some(command) = rx.recv().await {
-        let engine2 = engine.clone();
-
         match command {
             AnalyzeCommand::Submit(req) => {
                 tracing::info!("analyze task submit {:?}", req.path);
+                let engine = engine.clone();
                 manager.submit(req.path, move |path, tx| {
-                    let data = engine2.analyze(&path, tx);
+                    let data = engine.analyze(&path, tx);
                     let groups = data.map(|data| {
                         /*let me = Arc::get_mut(&mut engine2);
                         if let Some(me) = me {
@@ -76,7 +75,7 @@ async fn task_analyzer(mut rx: mpsc::Receiver<AnalyzeCommand>) {
                     });
                     tracing::info!("analyze task completed {:?}", path);
                     groups
-                }).await;
+                });
             }
             AnalyzeCommand::Subscribe(path, tx) => {
                 let rx = manager.progress(&path);
