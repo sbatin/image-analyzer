@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use image_hasher::{Hasher, ImageHash, HasherConfig, HashAlg};
@@ -37,32 +38,55 @@ pub fn list_dir(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-pub fn make_engine() -> Hasher {
-    HasherConfig::new()
-        .hash_size(16, 16)
-        .hash_alg(HashAlg::DoubleGradient)
-        .to_hasher()
-}
-
 pub struct AnalyzedData(Vec<(PathBuf, ImageHash)>);
 
-pub fn analyze_files(hasher: &Hasher, dir: &Path, tx: watch::Sender<usize>) -> Result<AnalyzedData> {
-    let mut result = Vec::new();
-    let files = list_dir(dir);
-    let n = files.len();
+pub struct Analyzer {
+    hasher: Hasher,
+    cache: HashMap<PathBuf, ImageHash>,
+}
 
-    for (i, path) in files.into_iter().enumerate() {
-        let progress = i * 100 / n;
-        tracing::info!(path = path.to_str(), progress, "analyzing");
+impl Analyzer {
+    pub fn new() -> Self {
+        let hasher = HasherConfig::new()
+            .hash_size(16, 16)
+            .hash_alg(HashAlg::DoubleGradient)
+            .to_hasher();
 
-        if let Ok(image) = image::open(&path) {
-            let hash = hasher.hash_image(&image);
-            result.push((path, hash));
-            tx.send(progress)?;
+        Analyzer {
+            hasher,
+            cache: HashMap::new(),
         }
     }
 
-    Ok(AnalyzedData(result))
+    pub fn analyze(&self, dir: &Path, tx: watch::Sender<usize>) -> Result<AnalyzedData> {
+        let mut result = Vec::new();
+        let files = list_dir(dir);
+        let n = files.len();
+
+        for (i, path) in files.into_iter().enumerate() {
+            tracing::info!(path = path.to_str(), "analyzing");
+
+            if let Some(hash) = self.cache.get(&path) {
+                result.push((path, hash.clone()));
+            } else if let Ok(image) = image::open(&path) {
+                let hash = self.hasher.hash_image(&image);
+                result.push((path, hash));
+            }
+
+            let progress = (i + 1) * 100 / n;
+            tx.send(progress)?;
+        }
+
+        Ok(AnalyzedData(result))
+    }
+
+    pub fn update_cache(&mut self, data: &AnalyzedData) {
+        for (path, hash) in &data.0 {
+            if !self.cache.contains_key(path) {
+                self.cache.insert(path.clone(), hash.clone());
+            }
+        }
+    }
 }
 
 pub type Groups = Vec<Vec<PathBuf>>;

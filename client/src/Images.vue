@@ -6,7 +6,7 @@ import API from './api';
 export default {
   methods: {
     async analyzePoll() {
-      const resp = await API.analyze(this.path, this.distance);
+      const resp = await API.poll(this.path);
       switch (resp.type) {
         case 'Pending': {
           this.progress = resp.progress;
@@ -20,10 +20,18 @@ export default {
         }
       }
     },
-    analyze() {
+    async analyze() {
       this.pending = true;
       this.progress = 0;
-      this.analyzePoll();
+      await API.analyze(this.path, this.distance);
+      //await this.analyzePoll();
+
+      API.subscribe(this.path, (progress) => {
+        this.progress = progress;
+        if (this.progress === 100) {
+          this.analyzePoll();
+        }
+      });
     },
     openImage(src) {
       this.selectedImage = src;
