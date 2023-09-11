@@ -63,18 +63,9 @@ async fn task_analyzer(mut rx: mpsc::Receiver<AnalyzeCommand>) {
                 tracing::info!("analyze task submit {:?}", req.path);
                 let engine = engine.clone();
                 manager.submit(req.path, move |path, tx| {
-                    let data = engine.analyze(&path, tx);
-                    let groups = data.map(|data| {
-                        /*let me = Arc::get_mut(&mut engine2);
-                        if let Some(me) = me {
-                            me.update_cache(&data);
-                        } else {
-                            tracing::warn!("cannot update analyzer cache");
-                        }*/
-                        analyzer::create_groups(&data, req.dist)
-                    });
+                    let result = engine.analyze(&path, req.dist, tx);
                     tracing::info!("analyze task completed {:?}", path);
-                    groups
+                    result
                 });
             }
             AnalyzeCommand::Subscribe(path, tx) => {
@@ -87,7 +78,7 @@ async fn task_analyzer(mut rx: mpsc::Receiver<AnalyzeCommand>) {
                 let resp = manager.poll(&path).await;
                 if let Err(_) = tx.send(resp) {
                     tracing::error!("unable to send response back to the client");
-                }    
+                }
             }
         }
     }
@@ -106,9 +97,10 @@ struct PathParams {
     path: PathBuf,
 }
 
-async fn list_folder(Query(params): Query<PathParams>) -> Json<Vec<PathBuf>> {
-    let files = analyzer::list_dir(&params.path);
-    Json(files)
+async fn list_folder(Query(params): Query<PathParams>) -> Result<Json<Vec<PathBuf>>, StatusCode> {
+    let files = analyzer::list_dir(&params.path)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(files))
 }
 
 async fn analyze(

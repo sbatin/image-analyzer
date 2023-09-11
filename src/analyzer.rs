@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::RwLock;
 use image_hasher::{Hasher, ImageHash, HasherConfig, HashAlg};
 use eyre::Result;
 use tokio::sync::watch;
@@ -30,77 +31,25 @@ fn list_dir_rec(files: &mut Vec<PathBuf>, dir: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn list_dir(dir: &Path) -> Vec<PathBuf> {
+pub fn list_dir(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
-    if let Err(_) = list_dir_rec(&mut files, dir) {
-        tracing::error!("unable to list dir {:?}", dir);
-    }
-    files
+    list_dir_rec(&mut files, dir)?;
+    Ok(files)
 }
 
-pub struct AnalyzedData(Vec<(PathBuf, ImageHash)>);
-
-pub struct Analyzer {
-    hasher: Hasher,
-    cache: HashMap<PathBuf, ImageHash>,
-}
-
-impl Analyzer {
-    pub fn new() -> Self {
-        let hasher = HasherConfig::new()
-            .hash_size(16, 16)
-            .hash_alg(HashAlg::DoubleGradient)
-            .to_hasher();
-
-        Analyzer {
-            hasher,
-            cache: HashMap::new(),
-        }
-    }
-
-    pub fn analyze(&self, dir: &Path, tx: watch::Sender<usize>) -> Result<AnalyzedData> {
-        let mut result = Vec::new();
-        let files = list_dir(dir);
-        let n = files.len();
-
-        for (i, path) in files.into_iter().enumerate() {
-            tracing::info!(path = path.to_str(), "analyzing");
-
-            if let Some(hash) = self.cache.get(&path) {
-                result.push((path, hash.clone()));
-            } else if let Ok(image) = image::open(&path) {
-                let hash = self.hasher.hash_image(&image);
-                result.push((path, hash));
-            }
-
-            let progress = (i + 1) * 100 / n;
-            tx.send(progress)?;
-        }
-
-        Ok(AnalyzedData(result))
-    }
-
-    pub fn update_cache(&mut self, data: &AnalyzedData) {
-        for (path, hash) in &data.0 {
-            if !self.cache.contains_key(path) {
-                self.cache.insert(path.clone(), hash.clone());
-            }
-        }
-    }
-}
+type Hashes = Vec<(PathBuf, ImageHash)>;
 
 pub type Groups = Vec<Vec<PathBuf>>;
 
-pub fn create_groups(hashes: &AnalyzedData, max_dist: u32) -> Groups {
-    let xs = &hashes.0;
+fn create_groups(hashes: &Hashes, max_dist: u32) -> Groups {
     let mut ds = disjoint_set::DisjointSet::new();
 
-    for (k, _) in xs {
+    for (k, _) in hashes {
         ds.insert(k.to_path_buf());
     }
 
-    for (k1, h1) in xs {
-        for (k2, h2) in xs {
+    for (k1, h1) in hashes {
+        for (k2, h2) in hashes {
             if k1 != k2 && h1.dist(h2) <= max_dist {
                 ds.union(k1, k2);
             }
@@ -119,4 +68,62 @@ pub fn create_groups(hashes: &AnalyzedData, max_dist: u32) -> Groups {
 
     result.sort();
     result
+}
+
+pub struct Analyzer {
+    hasher: Hasher,
+    cache: RwLock<HashMap<PathBuf, ImageHash>>,
+}
+
+impl Analyzer {
+    pub fn new() -> Self {
+        let hasher = HasherConfig::new()
+            .hash_size(16, 16)
+            .hash_alg(HashAlg::DoubleGradient)
+            .to_hasher();
+
+        Analyzer {
+            hasher,
+            cache: RwLock::new(HashMap::new()),
+        }
+    }
+
+    fn compute_hashes(&self, files: Vec<PathBuf>, tx: watch::Sender<usize>) -> Result<Hashes> {
+        let mut result = Vec::new();
+        let n = files.len();
+        let cache = self.cache.read().unwrap();
+
+        for (i, path) in files.into_iter().enumerate() {
+            tracing::info!(path = path.to_str(), "analyzing");
+
+            if let Some(hash) = cache.get(&path) {
+                result.push((path, hash.clone()));
+            } else if let Ok(image) = image::open(&path) {
+                let hash = self.hasher.hash_image(&image);
+                result.push((path, hash));
+            }
+
+            let progress = (i + 1) * 100 / n;
+            tx.send(progress)?;
+        }
+
+        Ok(result)
+    }
+
+    fn update_cache(&self, hashes: Hashes) {
+        let mut cache = self.cache.write().unwrap();
+        for (path, hash) in hashes {
+            if !cache.contains_key(&path) {
+                cache.insert(path, hash);
+            }
+        }
+    }
+
+    pub fn analyze(&self, dir: &Path, max_dist: u32, tx: watch::Sender<usize>) -> Result<Groups> {
+        let files = list_dir(dir)?;
+        let hashes = self.compute_hashes(files, tx)?;
+        let result = create_groups(&hashes, max_dist);
+        self.update_cache(hashes);
+        Ok(result)
+    }
 }
