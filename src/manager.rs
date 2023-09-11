@@ -35,7 +35,7 @@ where
         self.tasks.entry(key).or_insert_with_key(|key| {
             let key = key.clone();
             let (tx, rx) = watch::channel(Default::default());
-            let join_handle = task::spawn_blocking(move || f(key, tx));
+            let join_handle = task::spawn_blocking(|| f(key, tx));
             (join_handle, rx)
         })
     }
