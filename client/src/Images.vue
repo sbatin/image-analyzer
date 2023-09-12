@@ -1,7 +1,11 @@
 <script>
-import * as bootstrap from 'bootstrap';
 import ImageList from './ImageList.vue';
+import Preview from './Preview.vue';
 import API from './api';
+
+const MODE_LIST = 'list';
+const MODE_PENDING = 'pending';
+const MODE_RESULT = 'result';
 
 export default {
   methods: {
@@ -14,14 +18,14 @@ export default {
           break;
         }
         case 'Completed': {
-          this.pending = false;
-          this.similarImages = resp.data;
+          this.mode = MODE_RESULT;
+          this.images = resp.data;
           return;
         }
       }
     },
     async analyze() {
-      this.pending = true;
+      this.mode = MODE_PENDING;
       this.progress = 0;
       await API.analyze(this.path, this.distance);
       //await this.analyzePoll();
@@ -33,10 +37,6 @@ export default {
         }
       });
     },
-    openImage(src) {
-      this.selectedImage = src;
-      this.modal.show();
-    }
   },
   data() {
     const [, search] = window.location.hash.split('?');
@@ -44,21 +44,29 @@ export default {
     return {
       path: params.get('path'),
       progress: 0,
-      pending: false,
       distance: 10,
-      images: [],
-      similarImages: undefined,
-      modal: undefined,
-      selectedImage: '',
+      images: undefined,
+      mode: 0,
     };
   },
+  computed: {
+    isList() {
+      return this.mode === MODE_LIST;
+    },
+    isPending() {
+      return this.mode === MODE_PENDING;
+    },
+    isReady() {
+      return this.mode === MODE_RESULT;
+    }
+  },
   mounted() {
-    this.modal = new bootstrap.Modal('#image-popup');
     API.listDir(this.path).then((images) => {
       this.images = images;
+      this.mode = MODE_LIST;
     });
   },
-  components: { ImageList }
+  components: { ImageList, Preview }
 }
 </script>
 <template>
@@ -67,59 +75,33 @@ export default {
       <a class="navbar-brand" href="#">Image DeDup</a>
       <span class="navbar-text">{{ path }}</span>
       <ul class="navbar-nav me-auto mb-2 mb-lg-0"></ul>
-      <div v-if="pending" class="progress mx-3" role="progressbar" style="width:400px">
-        <div class="progress-bar" :style="`width: ${progress}%`"></div>
-      </div>
       <input type="text" class="form-control me-2" style="max-width:100px" v-model="distance"/>
-      <button class="btn btn-success" type="button" @click="analyze" :disabled="pending">
-        <span v-if="pending" class="spinner-border spinner-border-sm" aria-hidden="true"></span>
-        <span v-if="pending" role="status">Analyzing...</span>
-        <span v-if="!pending">Analyze</span>
-      </button>
+      <button class="btn btn-success" type="button" @click="analyze" :disabled="isPending">Analyze</button>
     </div>
   </nav>
   <div class="content">
     <div class="container py-5">
-      <div v-if="!similarImages" class="row row-cols-auto gy-4">
-        <ImageList :images="images" @click="openImage"/>
-      </div>
-      <div v-if="similarImages">
-        <div class="row row-cols-auto img-group gy-4" v-for="group of similarImages">
-          <ImageList :images="group" @click="openImage"/>
+      <div v-if="isPending">
+        <p class="h3" style="text-align: center">Analyzing...</p>
+        <div class="progress mx-3" role="progressbar" style="height: 20px">
+          <div class="progress-bar progress-bar-striped progress-bar-animated" :style="`width: ${progress}%`"></div>
         </div>
       </div>
-    </div>
-  </div>
-  <div id="image-popup" class="modal" tabindex="-1">
-    <div class="modal-dialog">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title">{{ selectedImage.substring(path.length + 1) }}</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-        </div>
-        <div class="modal-body">
-          <img class="img-full" :src="`image?path=${selectedImage}`"/>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-          <button type="button" class="btn btn-danger">Remove</button>
+      <div v-if="isList" class="row row-cols-auto gy-4">
+        <ImageList :images="images" @click="$refs.modal.open"/>
+      </div>
+      <div v-if="isReady">
+        <div class="row row-cols-auto img-group gy-4" v-for="group of images">
+          <ImageList :images="group" @click="$refs.modal.open"/>
         </div>
       </div>
     </div>
   </div>
+  <Preview ref="modal" :path="path"/>
 </template>
 <style scoped>
 .content {
   padding-top: 60px;
-}
-.modal-dialog {
-  max-width: fit-content;
-}
-.modal-body {
-  text-align: center;
-}
-.img-full {
-  max-height: 600px;
 }
 .img-group {
   border-bottom: 1px solid var(--bs-border-color);
