@@ -70,6 +70,12 @@ fn create_groups(hashes: &Hashes, max_dist: u32) -> Groups {
     result
 }
 
+#[derive(Debug, serde::Deserialize)]
+pub struct AnalyzeRequest {
+    pub dist: u32,
+    pub path: PathBuf,
+}
+
 pub struct Analyzer {
     hasher: Hasher,
     cache: RwLock<HashMap<PathBuf, ImageHash>>,
@@ -119,10 +125,10 @@ impl Analyzer {
         }
     }
 
-    pub fn analyze(&self, dir: &Path, max_dist: u32, tx: watch::Sender<usize>) -> Result<Groups> {
-        let files = list_dir(dir)?;
+    pub fn analyze(&self, req: &AnalyzeRequest, tx: watch::Sender<usize>) -> Result<Groups> {
+        let files = list_dir(&req.path)?;
         let hashes = self.compute_hashes(files, tx)?;
-        let result = create_groups(&hashes, max_dist);
+        let result = create_groups(&hashes, req.dist);
         self.update_cache(hashes);
         Ok(result)
     }

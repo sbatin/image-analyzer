@@ -2,7 +2,7 @@ mod analyzer;
 mod manager;
 mod disjoint_set;
 
-use analyzer::{Analyzer, Groups};
+use analyzer::{Analyzer, AnalyzeRequest, Groups};
 use manager::{TaskManager, TaskResponse};
 use std::{
     path::PathBuf,
@@ -28,12 +28,7 @@ use tokio::{
 };
 use futures::stream::{Stream, StreamExt};
 use tokio_stream::wrappers::WatchStream;
-
-#[derive(Debug, Deserialize)]
-struct AnalyzeRequest {
-    dist: u32,
-    path: PathBuf,
-}
+use uuid::Uuid;
 
 #[derive(Serialize)]
 #[serde(tag = "type")]
@@ -43,39 +38,54 @@ enum AnalyzeResponse {
     Failed { error: String },
 }
 
+#[derive(Serialize, Deserialize)]
+struct PathParams {
+    path: PathBuf,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskParams {
+    task_id: Uuid,
+}
+
 type TaskResult = Result<Groups>;
 
 enum AnalyzeCommand {
-    Submit(AnalyzeRequest),
-    Subscribe(PathBuf, oneshot::Sender<Option<watch::Receiver<usize>>>),
-    Poll(PathBuf, oneshot::Sender<Option<TaskResponse<usize, TaskResult>>>),
+    Submit(AnalyzeRequest, oneshot::Sender<Uuid>),
+    Subscribe(Uuid, oneshot::Sender<Option<watch::Receiver<usize>>>),
+    Poll(Uuid, oneshot::Sender<Option<TaskResponse<usize, TaskResult>>>),
 }
 
 async fn task_analyzer(mut rx: mpsc::Receiver<AnalyzeCommand>) {
     tracing::info!("manager task started");
 
     let engine = Arc::new(Analyzer::new());
-    let mut manager: TaskManager<PathBuf, usize, TaskResult> = TaskManager::new();
+    let mut manager: TaskManager<Uuid, usize, TaskResult> = TaskManager::new();
 
     while let Some(command) = rx.recv().await {
         match command {
-            AnalyzeCommand::Submit(req) => {
-                tracing::info!("analyze task submit {:?}", req.path);
+            AnalyzeCommand::Submit(req, tx) => {
+                tracing::info!("analyze task submit {:?}", req);
                 let engine = engine.clone();
-                manager.submit(req.path, move |path, tx| {
-                    let result = engine.analyze(&path, req.dist, tx);
-                    tracing::info!("analyze task completed {:?}", path);
+                let task_id = Uuid::new_v4();
+                manager.submit(task_id, move |tx| {
+                    let result = engine.analyze(&req, tx);
+                    tracing::info!("analyze task completed {:?}", req);
                     result
                 });
+                if let Err(_) = tx.send(task_id) {
+                    tracing::error!("unable to send response back to the client");
+                }
             }
-            AnalyzeCommand::Subscribe(path, tx) => {
-                let rx = manager.progress(&path);
+            AnalyzeCommand::Subscribe(task_id, tx) => {
+                let rx = manager.progress(&task_id);
                 if let Err(_) = tx.send(rx) {
                     tracing::error!("unable to send response back to the client");
                 }
             }
-            AnalyzeCommand::Poll(path, tx) => {
-                let resp = manager.poll(&path).await;
+            AnalyzeCommand::Poll(task_id, tx) => {
+                let resp = manager.poll(&task_id).await;
                 if let Err(_) = tx.send(resp) {
                     tracing::error!("unable to send response back to the client");
                 }
@@ -92,11 +102,6 @@ fn spawn_analyzer() -> (JoinHandle<()>, mpsc::Sender<AnalyzeCommand>) {
     (join_handle, tx)
 }
 
-#[derive(Deserialize)]
-struct PathParams {
-    path: PathBuf,
-}
-
 async fn list_folder(Query(params): Query<PathParams>) -> Result<Json<Vec<PathBuf>>, StatusCode> {
     let files = analyzer::list_dir(&params.path)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -106,25 +111,29 @@ async fn list_folder(Query(params): Query<PathParams>) -> Result<Json<Vec<PathBu
 async fn analyze(
     State(state): State<AppState>,
     Query(req): Query<AnalyzeRequest>,
-) -> Result<Json<bool>, StatusCode> {
+) -> Result<Json<TaskParams>, StatusCode> {
+    let (tx, rx) = oneshot::channel();
+
     state
         .task_sender
-        .send(AnalyzeCommand::Submit(req))
+        .send(AnalyzeCommand::Submit(req, tx))
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(true))
+    let task_id = rx.await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(TaskParams { task_id }))
 }
 
 async fn poll(
     State(state): State<AppState>,
-    Query(params): Query<PathParams>,
+    Query(params): Query<TaskParams>,
 ) -> Result<Json<AnalyzeResponse>, StatusCode> {
     let (tx, rx) = oneshot::channel();
 
     state
         .task_sender
-        .send(AnalyzeCommand::Poll(params.path, tx))
+        .send(AnalyzeCommand::Poll(params.task_id, tx))
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -139,15 +148,15 @@ async fn poll(
 
 async fn subscribe(
     State(state): State<AppState>,
-    Query(params): Query<PathParams>,
+    Query(params): Query<TaskParams>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, serde_json::error::Error>>>, StatusCode> {
-    tracing::info!("sse handler called {:?}", params.path);
+    tracing::info!("SSE handler called {:?}", params.task_id);
 
     let (tx, rx) = oneshot::channel();
 
     state
         .task_sender
-        .send(AnalyzeCommand::Subscribe(params.path, tx))
+        .send(AnalyzeCommand::Subscribe(params.task_id, tx))
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 

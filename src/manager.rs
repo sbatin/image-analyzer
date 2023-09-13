@@ -18,7 +18,7 @@ pub struct TaskManager<K, P, R> {
 
 impl<K, P, R> TaskManager<K, P, R>
 where
-    K: Eq + Hash + Send + 'static,
+    K: Eq + Hash,
     P: Send + Sync + 'static,
     R: Send + 'static,
 {
@@ -28,14 +28,12 @@ where
 
     pub fn submit<F>(&mut self, key: K, f: F) -> &mut (JoinHandle<R>, watch::Receiver<P>)
     where
-        F: FnOnce(K, watch::Sender<P>) -> R + Send + 'static,
-        K: Clone,
+        F: FnOnce(watch::Sender<P>) -> R + Send + 'static,
         P: Default,
     {
-        self.tasks.entry(key).or_insert_with_key(|key| {
-            let key = key.clone();
+        self.tasks.entry(key).or_insert_with(|| {
             let (tx, rx) = watch::channel(Default::default());
-            let join_handle = task::spawn_blocking(|| f(key, tx));
+            let join_handle = task::spawn_blocking(|| f(tx));
             (join_handle, rx)
         })
     }

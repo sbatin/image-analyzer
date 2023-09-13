@@ -9,12 +9,12 @@ const MODE_RESULT = 'result';
 
 export default {
   methods: {
-    async analyzePoll() {
-      const resp = await API.poll(this.path);
+    async analyzePoll(taskId) {
+      const resp = await API.poll(taskId);
       switch (resp.type) {
         case 'Pending': {
           this.progress = resp.progress;
-          await this.analyzePoll();
+          await this.analyzePoll(taskId);
           break;
         }
         case 'Completed': {
@@ -27,13 +27,14 @@ export default {
     async analyze() {
       this.mode = MODE_PENDING;
       this.progress = 0;
-      await API.analyze(this.path, this.distance);
+      const response = await API.analyze(this.path, this.distance);
+      console.log(response);
       //await this.analyzePoll();
 
-      API.subscribe(this.path, (progress) => {
+      API.subscribe(response.taskId, (progress) => {
         this.progress = progress;
         if (this.progress === 100) {
-          this.analyzePoll();
+          this.analyzePoll(response.taskId);
         }
       });
     },

@@ -7,13 +7,13 @@ export default class API {
     return resp.json();
   }
 
-  static async poll(path) {
-    const resp = await fetch(`/poll?path=${path}`);
+  static async poll(taskId) {
+    const resp = await fetch(`/poll?taskId=${taskId}`);
     return resp.json();
   }
 
-  static subscribe(path, handler) {
-    const evtSource = new EventSource(`/subscribe?path=${path}`);
+  static subscribe(taskId, handler) {
+    const evtSource = new EventSource(`/subscribe?taskId=${taskId}`);
     evtSource.onmessage = (event) => {
       handler(JSON.parse(event.data));
     };
