@@ -1,11 +1,10 @@
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
 use image_hasher::{Hasher, ImageHash, HasherConfig, HashAlg};
 use eyre::Result;
 use tokio::sync::watch;
 
+use crate::cache::Cache;
 use crate::disjoint_set;
 
 fn list_dir_rec(files: &mut Vec<PathBuf>, dir: &Path) -> Result<()> {
@@ -78,7 +77,7 @@ pub struct AnalyzeRequest {
 
 pub struct Analyzer {
     hasher: Hasher,
-    cache: RwLock<HashMap<PathBuf, ImageHash>>,
+    cache: Cache<PathBuf, ImageHash>,
 }
 
 impl Analyzer {
@@ -88,22 +87,20 @@ impl Analyzer {
             .hash_alg(HashAlg::DoubleGradient)
             .to_hasher();
 
-        Analyzer {
-            hasher,
-            cache: RwLock::new(HashMap::new()),
-        }
+        let cache = Cache::new();
+
+        Analyzer { hasher, cache }
     }
 
     fn compute_hashes(&self, files: Vec<PathBuf>, tx: watch::Sender<usize>) -> Result<Hashes> {
         let mut result = Vec::new();
         let n = files.len();
-        let cache = self.cache.read().unwrap();
 
         for (i, path) in files.into_iter().enumerate() {
             tracing::info!(path = path.to_str(), "analyzing");
 
-            if let Some(hash) = cache.get(&path) {
-                result.push((path, hash.clone()));
+            if let Some(hash) = self.cache.get(path.clone())? {
+                result.push((path, hash));
             } else if let Ok(image) = image::open(&path) {
                 let hash = self.hasher.hash_image(&image);
                 result.push((path, hash));
@@ -116,20 +113,19 @@ impl Analyzer {
         Ok(result)
     }
 
-    fn update_cache(&self, hashes: Hashes) {
-        let mut cache = self.cache.write().unwrap();
+    fn update_cache(&self, hashes: Hashes) -> Result<()> {
         for (path, hash) in hashes {
-            if !cache.contains_key(&path) {
-                cache.insert(path, hash);
-            }
+            self.cache.set(path, hash);
         }
+
+        Ok(())
     }
 
     pub fn analyze(&self, req: &AnalyzeRequest, tx: watch::Sender<usize>) -> Result<Groups> {
         let files = list_dir(&req.path)?;
         let hashes = self.compute_hashes(files, tx)?;
         let result = create_groups(&hashes, req.dist);
-        self.update_cache(hashes);
+        self.update_cache(hashes)?;
         Ok(result)
     }
 }

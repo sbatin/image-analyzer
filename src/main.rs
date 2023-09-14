@@ -1,5 +1,6 @@
 mod analyzer;
 mod manager;
+mod cache;
 mod disjoint_set;
 
 use analyzer::{Analyzer, AnalyzeRequest, Groups};
