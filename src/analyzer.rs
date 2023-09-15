@@ -115,7 +115,7 @@ impl Analyzer {
 
     fn update_cache(&self, hashes: Hashes) -> Result<()> {
         for (path, hash) in hashes {
-            self.cache.set(path, hash);
+            self.cache.set(path, hash)?;
         }
 
         Ok(())

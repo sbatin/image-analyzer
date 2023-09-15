@@ -14,14 +14,14 @@ enum CacheCommand<K, V> {
     Set(K, V),
 }
 
-fn task_cache<K, V>(rx: mpsc::Receiver<CacheCommand<K, V>>)
+fn task_cache<K, V>(commands: mpsc::Receiver<CacheCommand<K, V>>)
 where
     K: Eq + Hash + Debug,
     V: Clone,
 {
     let mut cache: HashMap<K, V> = HashMap::new();
 
-    for command in rx {
+    for command in commands {
         match command {
             CacheCommand::Get(key, tx) => {
                 if let Err(_) = tx.send(cache.get(&key).map(|val| val.clone())) {
@@ -53,11 +53,11 @@ where
     pub fn get(&self, key: K) -> Result<Option<V>> {
         let (tx, rx) = oneshot::channel();
         self.commands.send(CacheCommand::Get(key, tx)).unwrap();
-        let resp = rx.blocking_recv()?;
-        Ok(resp)
+        Ok(rx.blocking_recv()?)
     }
 
-    pub fn set(&self, key: K, val: V) {
+    pub fn set(&self, key: K, val: V) -> Result<()> {
         self.commands.send(CacheCommand::Set(key, val)).unwrap();
+        Ok(())
     }
 }
