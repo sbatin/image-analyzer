@@ -1,6 +1,6 @@
 export default class API {
-  static async analyze(path, distance) {
-    const resp = await fetch(`/analyze?path=${path}&dist=${distance}`, {
+  static async analyze(path, params) {
+    const resp = await fetch(`/analyze?path=${path}&dist=${params.distance}&hashType=${params.hashType}&hashSize=${params.hashSize}`, {
       method: 'POST',
     });
   

@@ -69,40 +69,64 @@ fn create_groups(hashes: &Hashes, max_dist: u32) -> Groups {
     result
 }
 
+#[derive(Eq, PartialEq, Hash, Clone, Copy, Debug, serde::Deserialize)]
+pub enum HashType {
+    AHash,
+    PHash,
+    DHash,
+}
+
 #[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AnalyzeRequest {
     pub dist: u32,
     pub path: PathBuf,
+    pub hash_type: HashType,
+    pub hash_size: u32,
 }
 
+type CacheKey = (HashType, u32, PathBuf);
+
 pub struct Analyzer {
-    hasher: Hasher,
-    cache: Cache<PathBuf, ImageHash>,
+    cache: Cache<CacheKey, ImageHash>,
 }
 
 impl Analyzer {
     pub fn new() -> Self {
-        let hasher = HasherConfig::new()
-            .hash_size(16, 16)
-            .hash_alg(HashAlg::DoubleGradient)
-            .to_hasher();
-
-        let cache = Cache::new();
-
-        Analyzer { hasher, cache }
+        Self { cache: Cache::new() }
     }
 
-    fn compute_hashes(&self, files: Vec<PathBuf>, tx: watch::Sender<usize>) -> Result<Hashes> {
+    fn make_hasher(req: &AnalyzeRequest) -> Hasher {
+        let (hash_alg, dct) = match req.hash_type {
+            HashType::AHash => (HashAlg::Mean, false),
+            HashType::PHash => (HashAlg::Mean, true),
+            HashType::DHash => (HashAlg::Gradient, false),
+        };
+
+        let mut config = HasherConfig::new()
+            .hash_size(req.hash_size, req.hash_size)
+            .hash_alg(hash_alg);
+
+        if dct {
+            config = config.preproc_dct();
+        }
+
+        config.to_hasher()
+    }
+
+    fn compute_hashes(&self, req: &AnalyzeRequest, files: Vec<PathBuf>, tx: watch::Sender<usize>) -> Result<Hashes> {
+        let hasher = Self::make_hasher(req);
         let mut result = Vec::new();
         let n = files.len();
 
         for (i, path) in files.into_iter().enumerate() {
             tracing::info!(path = path.to_str(), "analyzing");
 
-            if let Some(hash) = self.cache.get(path.clone())? {
+            let key = (req.hash_type, req.hash_size, path.clone());
+            if let Some(hash) = self.cache.get(key)? {
                 result.push((path, hash));
             } else if let Ok(image) = image::open(&path) {
-                let hash = self.hasher.hash_image(&image);
+                let hash = hasher.hash_image(&image);
                 result.push((path, hash));
             }
 
@@ -113,9 +137,10 @@ impl Analyzer {
         Ok(result)
     }
 
-    fn update_cache(&self, hashes: Hashes) -> Result<()> {
+    fn update_cache(&self, req: &AnalyzeRequest, hashes: Hashes) -> Result<()> {
         for (path, hash) in hashes {
-            self.cache.set(path, hash)?;
+            let key = (req.hash_type, req.hash_size, path);
+            self.cache.set(key, hash)?;
         }
 
         Ok(())
@@ -123,9 +148,9 @@ impl Analyzer {
 
     pub fn analyze(&self, req: &AnalyzeRequest, tx: watch::Sender<usize>) -> Result<Groups> {
         let files = list_dir(&req.path)?;
-        let hashes = self.compute_hashes(files, tx)?;
+        let hashes = self.compute_hashes(req, files, tx)?;
         let result = create_groups(&hashes, req.dist);
-        self.update_cache(hashes)?;
+        self.update_cache(req, hashes)?;
         Ok(result)
     }
 }

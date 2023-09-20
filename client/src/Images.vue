@@ -1,6 +1,7 @@
 <script>
 import ImageList from './ImageList.vue';
 import Preview from './Preview.vue';
+import Settings from './Settings.vue';
 import API from './api';
 
 const MODE_LIST = 'list';
@@ -24,10 +25,10 @@ export default {
         }
       }
     },
-    async analyze() {
+    async analyze(params) {
       this.mode = MODE_PENDING;
       this.progress = 0;
-      const response = await API.analyze(this.path, this.distance);
+      const response = await API.analyze(this.path, params);
       console.log(response);
       //await this.analyzePoll();
 
@@ -45,7 +46,6 @@ export default {
     return {
       path: params.get('path'),
       progress: 0,
-      distance: 10,
       images: undefined,
       mode: 0,
     };
@@ -67,7 +67,7 @@ export default {
       this.mode = MODE_LIST;
     });
   },
-  components: { ImageList, Preview }
+  components: { ImageList, Preview, Settings }
 }
 </script>
 <template>
@@ -76,8 +76,7 @@ export default {
       <a class="navbar-brand" href="#">Image DeDup</a>
       <span class="navbar-text">{{ path }}</span>
       <ul class="navbar-nav me-auto mb-2 mb-lg-0"></ul>
-      <input type="text" class="form-control me-2" style="max-width:100px" v-model="distance"/>
-      <button class="btn btn-success" type="button" @click="analyze" :disabled="isPending">Analyze</button>
+      <button class="btn btn-success" type="button" @click="$refs.settings.open" :disabled="isPending">Analyze</button>
     </div>
   </nav>
   <div class="content">
@@ -99,6 +98,7 @@ export default {
     </div>
   </div>
   <Preview ref="modal" :path="path"/>
+  <Settings ref="settings" @submit="analyze"/>
 </template>
 <style scoped>
 .content {
