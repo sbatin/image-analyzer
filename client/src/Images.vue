@@ -2,6 +2,7 @@
 import ImageList from './ImageList.vue';
 import Preview from './Preview.vue';
 import Settings from './Settings.vue';
+import Navbar from './Navbar.vue';
 import API from './api';
 
 const MODE_LIST = 'list';
@@ -25,6 +26,7 @@ export default {
         }
       }
     },
+
     async analyze(params) {
       this.mode = MODE_PENDING;
       this.progress = 0;
@@ -40,16 +42,21 @@ export default {
       });
     },
   },
+
   data() {
     const [, search] = window.location.hash.split('?');
     const params = new URLSearchParams(search);
+    const path = params.get('path');
+    const items = path.split('/');
     return {
-      path: params.get('path'),
+      path,
+      name: items[items.length - 1],
       progress: 0,
       images: undefined,
       mode: 0,
     };
   },
+
   computed: {
     isList() {
       return this.mode === MODE_LIST;
@@ -61,24 +68,31 @@ export default {
       return this.mode === MODE_RESULT;
     }
   },
+
   mounted() {
     API.listDir(this.path).then((images) => {
       this.images = images;
       this.mode = MODE_LIST;
     });
   },
-  components: { ImageList, Preview, Settings }
+
+  components: { ImageList, Preview, Settings, Navbar }
 }
 </script>
 <template>
-  <nav class="navbar fixed-top bg-dark bg-body-tertiary" data-bs-theme="dark">
-    <div class="container-fluid">
-      <a class="navbar-brand" href="#">Image DeDup</a>
-      <span class="navbar-text">{{ path }}</span>
-      <ul class="navbar-nav me-auto mb-2 mb-lg-0"></ul>
-      <button class="btn btn-success" type="button" @click="$refs.settings.open" :disabled="isPending">Analyze</button>
-    </div>
-  </nav>
+  <Navbar>
+    <ol class="breadcrumb" style="margin: 0;">
+      <li class="breadcrumb-item"><a href="#">Home</a></li>
+      <li v-if="isList" class="breadcrumb-item active">{{ name }}</li>
+      <li v-if="isReady || isPending" class="breadcrumb-item">
+        <a :href="`#images?path=${path}`" onclick="window.location.reload(true)">
+          {{ name }}
+        </a>
+      </li>
+      <li v-if="isReady" class="breadcrumb-item active">Analyzed</li>
+    </ol>
+    <button class="btn btn-success" type="button" @click="$refs.settings.open" :disabled="isPending">Analyze</button>
+  </Navbar>
   <div class="content">
     <div class="container py-5">
       <div v-if="isPending">

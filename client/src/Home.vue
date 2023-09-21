@@ -1,4 +1,5 @@
 <script>
+  import Navbar from './Navbar.vue';
   export default {
     data() {
       return {
@@ -10,15 +11,13 @@
       navigate() {
         window.location.hash = `#images?path=${this.path}`;
       }
-    }
+    },
+
+    components: { Navbar },
   }
 </script>
 <template>
-  <nav class="navbar bg-dark bg-body-tertiary" data-bs-theme="dark">
-    <div class="container-fluid">
-      <a class="navbar-brand" href="#">Image DeDup</a>
-    </div>
-  </nav>
+  <Navbar/>
   <div class="d-flex min-vh-100 justify-content-center align-items-center">
     <form class="row g-3">
       <div class="col-auto">

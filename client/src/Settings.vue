@@ -7,7 +7,7 @@
     data() {
       return {
         modal: undefined,
-        hashType: 'PHash',
+        hashType: 'DHash',
         hashSize: 8,
         distance: 5,
       }
@@ -61,7 +61,7 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-          <button type="button" class="btn btn-primary" @click="submit">Submit</button>
+          <button type="submit" class="btn btn-primary" @click="submit">Submit</button>
         </div>
       </div>
     </div>
