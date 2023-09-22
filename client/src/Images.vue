@@ -122,4 +122,7 @@ export default {
   border-bottom: 1px solid var(--bs-border-color);
   padding: 20px 0;
 }
+.breadcrumb-item a {
+  color: white;
+}
 </style>
