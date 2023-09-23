@@ -1,5 +1,6 @@
-use std::fs;
+use std::fs::{self, DirEntry};
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 use image_hasher::{Hasher, ImageHash, HasherConfig, HashAlg};
 use eyre::Result;
 use tokio::sync::watch;
@@ -7,7 +8,28 @@ use tokio::sync::watch;
 use crate::cache::Cache;
 use crate::disjoint_set;
 
-fn list_dir_rec(files: &mut Vec<PathBuf>, dir: &Path) -> Result<()> {
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize)]
+pub struct FileInfo {
+    path: PathBuf,
+    size: u64,
+    date: u64,
+}
+
+impl FileInfo {
+    pub fn from_entry(entry: DirEntry) -> Result<Self> {
+        let metadata = entry.metadata()?;
+        let size = metadata.len();
+        let ctime = metadata.created()?;
+        let ctime = ctime.duration_since(SystemTime::UNIX_EPOCH)?;
+        Ok(Self {
+            path: entry.path(),
+            size,
+            date: ctime.as_millis() as u64,
+        })
+    }
+}
+
+fn list_dir_rec(files: &mut Vec<FileInfo>, dir: &Path) -> Result<()> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
@@ -21,7 +43,8 @@ fn list_dir_rec(files: &mut Vec<PathBuf>, dir: &Path) -> Result<()> {
                     || ext.eq_ignore_ascii_case("jpeg")
                     || ext.eq_ignore_ascii_case("png")
                 {
-                    files.push(path);
+                    let info = FileInfo::from_entry(entry)?;
+                    files.push(info);
                 }
             }
         }
@@ -30,43 +53,36 @@ fn list_dir_rec(files: &mut Vec<PathBuf>, dir: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn list_dir(dir: &Path) -> Result<Vec<PathBuf>> {
+pub fn list_dir(dir: &Path) -> Result<Vec<FileInfo>> {
     let mut files = Vec::new();
     list_dir_rec(&mut files, dir)?;
     Ok(files)
 }
 
-type Hashes = Vec<(PathBuf, ImageHash)>;
+type Hashes = Vec<(FileInfo, ImageHash)>;
 
-pub type Groups = Vec<Vec<PathBuf>>;
+pub type Groups = Vec<Vec<FileInfo>>;
 
 fn create_groups(hashes: &Hashes, max_dist: u32) -> Groups {
     let mut ds = disjoint_set::DisjointSet::new();
 
     for (k, _) in hashes {
-        ds.insert(k.to_path_buf());
+        ds.insert(k.clone());
     }
 
     for (k1, h1) in hashes {
         for (k2, h2) in hashes {
-            if k1 != k2 && h1.dist(h2) <= max_dist {
+            if k1.path != k2.path && h1.dist(h2) <= max_dist {
                 ds.union(k1, k2);
             }
         }
     }
 
-    let mut result: Vec<_> = ds
+    ds
         .to_vec()
         .into_iter()
         .filter(|v| v.len() > 1)
-        .collect();
-
-    for v in &mut result {
-        v.sort();
-    }
-
-    result.sort();
-    result
+        .collect()
 }
 
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug, serde::Deserialize)]
@@ -114,20 +130,20 @@ impl Analyzer {
         config.to_hasher()
     }
 
-    fn compute_hashes(&self, req: &AnalyzeRequest, files: Vec<PathBuf>, tx: watch::Sender<usize>) -> Result<Hashes> {
+    fn compute_hashes(&self, req: &AnalyzeRequest, files: Vec<FileInfo>, tx: watch::Sender<usize>) -> Result<Hashes> {
         let hasher = Self::make_hasher(req);
         let mut result = Vec::new();
         let n = files.len();
 
-        for (i, path) in files.into_iter().enumerate() {
-            tracing::info!(path = path.to_str(), "analyzing");
+        for (i, file) in files.into_iter().enumerate() {
+            tracing::info!(path = file.path.to_str(), "analyzing");
 
-            let key = (req.hash_type, req.hash_size, path.clone());
+            let key = (req.hash_type, req.hash_size, file.path.clone());
             if let Some(hash) = self.cache.get(key)? {
-                result.push((path, hash));
-            } else if let Ok(image) = image::open(&path) {
+                result.push((file, hash));
+            } else if let Ok(image) = image::open(&file.path) {
                 let hash = hasher.hash_image(&image);
-                result.push((path, hash));
+                result.push((file, hash));
             }
 
             let progress = (i + 1) * 100 / n;
@@ -138,8 +154,8 @@ impl Analyzer {
     }
 
     fn update_cache(&self, req: &AnalyzeRequest, hashes: Hashes) -> Result<()> {
-        for (path, hash) in hashes {
-            let key = (req.hash_type, req.hash_size, path);
+        for (file, hash) in hashes {
+            let key = (req.hash_type, req.hash_size, file.path);
             self.cache.set(key, hash)?;
         }
 

@@ -21,7 +21,9 @@ export default {
         }
         case 'Completed': {
           this.mode = MODE_RESULT;
-          this.images = resp.data;
+          this.groups = resp.data
+            .map((group) => group.sort((a, b) => b.date - a.date))
+            .sort((a, b) => b[0].date - a[0].date);
           return;
         }
       }
@@ -53,6 +55,7 @@ export default {
       name: items[items.length - 1],
       progress: 0,
       images: undefined,
+      groups: undefined,
       mode: 0,
     };
   },
@@ -105,7 +108,7 @@ export default {
         <ImageList :images="images" @click="$refs.modal.open"/>
       </div>
       <div v-if="isReady">
-        <div class="row row-cols-auto img-group gy-4" v-for="group of images">
+        <div class="row row-cols-auto img-group gy-4" v-for="group of groups">
           <ImageList :images="group" @click="$refs.modal.open"/>
         </div>
       </div>

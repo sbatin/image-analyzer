@@ -3,7 +3,7 @@ mod manager;
 mod cache;
 mod disjoint_set;
 
-use analyzer::{Analyzer, AnalyzeRequest, Groups};
+use analyzer::{Analyzer, AnalyzeRequest, Groups, FileInfo};
 use manager::{TaskManager, TaskResponse};
 use std::{
     path::PathBuf,
@@ -103,7 +103,7 @@ fn spawn_analyzer() -> (JoinHandle<()>, mpsc::Sender<AnalyzeCommand>) {
     (join_handle, tx)
 }
 
-async fn list_folder(Query(params): Query<PathParams>) -> Result<Json<Vec<PathBuf>>, StatusCode> {
+async fn list_folder(Query(params): Query<PathParams>) -> Result<Json<Vec<FileInfo>>, StatusCode> {
     let files = analyzer::list_dir(&params.path)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(files))
