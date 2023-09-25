@@ -23,7 +23,13 @@ export default {
           this.mode = MODE_RESULT;
           this.groups = resp.data
             .map((group) => group.sort((a, b) => b.date - a.date))
-            .sort((a, b) => b[0].date - a[0].date);
+            .sort((a, b) => b[0].date - a[0].date)
+            .map((items, i) => {
+              return {
+                title: `Group ${i + 1} (${items.length} images)`,
+                items,
+              }
+            })
           return;
         }
       }
@@ -54,7 +60,6 @@ export default {
       path,
       name: items[items.length - 1],
       progress: 0,
-      images: undefined,
       groups: undefined,
       mode: 0,
     };
@@ -74,7 +79,25 @@ export default {
 
   mounted() {
     API.listDir(this.path).then((images) => {
-      this.images = images;
+      const groups = {};
+
+      for (const file of images) {
+        const year = new Date(file.date).getFullYear();
+        if (!groups[year]) {
+          groups[year] = [];
+        }
+
+        groups[year].push(file);
+      }
+
+      this.groups = Object.entries(groups).map(([year, items]) => {
+        return {
+          key: year,
+          title: year,
+          items,
+        }
+      }).sort((a, b) => b.key - a.key);
+
       this.mode = MODE_LIST;
     });
   },
@@ -97,19 +120,17 @@ export default {
     <button class="btn btn-success" type="button" @click="$refs.settings.open" :disabled="isPending">Analyze</button>
   </Navbar>
   <div class="content">
-    <div class="container py-5">
+    <div class="container-fluid py-5">
       <div v-if="isPending">
         <p class="h3" style="text-align: center">Analyzing...</p>
         <div class="progress mx-3" role="progressbar" style="height: 20px">
           <div class="progress-bar progress-bar-striped progress-bar-animated" :style="`width: ${progress}%`"></div>
         </div>
       </div>
-      <div v-if="isList" class="row row-cols-auto gy-4">
-        <ImageList :images="images" @click="$refs.modal.open"/>
-      </div>
-      <div v-if="isReady">
-        <div class="row row-cols-auto img-group gy-4" v-for="group of groups">
-          <ImageList :images="group" @click="$refs.modal.open"/>
+      <div v-if="!isPending">
+        <div class="row row-cols-auto img-group" v-for="group of groups">
+          <div class="group-title">{{ group.title }}</div>
+          <ImageList :images="group.items" @click="$refs.modal.open"/>
         </div>
       </div>
     </div>
@@ -122,10 +143,20 @@ export default {
   padding-top: 60px;
 }
 .img-group {
-  border-bottom: 1px solid var(--bs-border-color);
+  border-top: 1px solid var(--bs-border-color);
   padding: 20px 0;
 }
 .breadcrumb-item a {
   color: white;
+}
+.row {
+  padding: 0 40px;
+}
+.group-title {
+  margin-left:-40px;
+  width: 100%;
+  margin-bottom: 20px;
+  font-size: 1.5em;
+  color: var(--bs-tertiary-color);
 }
 </style>
