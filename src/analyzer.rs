@@ -132,39 +132,45 @@ impl Analyzer {
         config.to_hasher()
     }
 
+    fn cache_key(req: &AnalyzeRequest, file_path: PathBuf) -> CacheKey {
+        (req.hash_type, req.hash_size, file_path)
+    }
+
+    fn compute_hash(&self, req: &AnalyzeRequest, hasher: &Hasher, file: FileInfo) -> Option<(FileInfo, ImageHash)> {
+        let path = file.path.to_str();
+        tracing::info!(path, "analyzing");
+
+        let key = Self::cache_key(req, file.path.clone());
+        if let Ok(Some(hash)) = self.cache.get(key) {
+            Some((file, hash))
+        } else {
+            match image::open(&file.path) {
+                Ok(image) => {
+                    let hash = hasher.hash_image(&image);
+                    Some((file, hash))
+                }
+                Err(err) => {
+                    tracing::error!(path, "unable to open the image: {:?}", err);
+                    None
+                }
+            }
+        }
+    }
+
     fn compute_hashes(&self, req: &AnalyzeRequest, files: Vec<FileInfo>, tx: watch::Sender<usize>) -> Result<Hashes> {
         let hasher = Self::make_hasher(req);
         let total = files.len();
-
-        //let iter = files.into_iter();
         let iter = files.into_par_iter();
         let counter = AtomicUsize::new(0);
 
         let result = iter.filter_map(|file| {
-            let path_str = file.path.to_str();
-            tracing::info!(path = path_str, "analyzing");
-
             let prev = counter.fetch_add(1, Ordering::Relaxed);
             let progress = prev * 100 / total;
             if let Err(_) = tx.send(progress) {
-                tracing::error!(path = path_str, "unable to report progress");
+                tracing::error!(path = file.path.to_str(), "unable to report progress");
             }
 
-            let key = (req.hash_type, req.hash_size, file.path.clone());
-            if let Ok(Some(hash)) = self.cache.get(key) {
-                Some((file, hash))
-            } else {
-                match image::open(&file.path) {
-                    Ok(image) => {
-                        let hash = hasher.hash_image(&image);
-                        Some((file, hash))
-                    }
-                    Err(err) => {
-                        tracing::error!(path = path_str, "unable to open the image: {:?}", err);
-                        None
-                    }
-                }
-            }
+            self.compute_hash(req, &hasher, file)
         }).collect();
 
         let progress = counter.into_inner() * 100 / total;
@@ -175,7 +181,7 @@ impl Analyzer {
 
     fn update_cache(&self, req: &AnalyzeRequest, hashes: Hashes) -> Result<()> {
         for (file, hash) in hashes {
-            let key = (req.hash_type, req.hash_size, file.path);
+            let key = Self::cache_key(req, file.path);
             self.cache.set(key, hash)?;
         }
 
