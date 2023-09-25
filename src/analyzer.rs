@@ -141,22 +141,29 @@ impl Analyzer {
         let counter = AtomicUsize::new(0);
 
         let result = iter.filter_map(|file| {
-            tracing::info!(path = file.path.to_str(), "analyzing");
+            let path_str = file.path.to_str();
+            tracing::info!(path = path_str, "analyzing");
 
             let prev = counter.fetch_add(1, Ordering::Relaxed);
             let progress = prev * 100 / total;
             if let Err(_) = tx.send(progress) {
-                tracing::error!(path = file.path.to_str(), "unable to report progress");
+                tracing::error!(path = path_str, "unable to report progress");
             }
 
             let key = (req.hash_type, req.hash_size, file.path.clone());
             if let Ok(Some(hash)) = self.cache.get(key) {
                 Some((file, hash))
-            } else if let Ok(image) = image::open(&file.path) {
-                let hash = hasher.hash_image(&image);
-                Some((file, hash))
             } else {
-                None
+                match image::open(&file.path) {
+                    Ok(image) => {
+                        let hash = hasher.hash_image(&image);
+                        Some((file, hash))
+                    }
+                    Err(err) => {
+                        tracing::error!(path = path_str, "unable to open the image: {:?}", err);
+                        None
+                    }
+                }
             }
         }).collect();
 
