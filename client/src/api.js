@@ -1,15 +1,38 @@
+export class HttpError extends Error {
+  /**
+   * @param {number} status 
+   * @param {string} statusText 
+   */
+  constructor(status, statusText) {
+    super(statusText);
+    this.statusText = statusText;
+    this.status = status;
+  }
+}
+
+/**
+ * @param {Response} response
+ */
+function getResponseData(response) {
+  if (response.ok) {
+    return response.json();
+  } else {
+    throw new HttpError(response.status, response.statusText);
+  }
+}
+
 export default class API {
   static async analyze(path, params) {
     const resp = await fetch(`/analyze?path=${path}&dist=${params.distance}&hashType=${params.hashType}&hashSize=${params.hashSize}`, {
       method: 'POST',
     });
   
-    return resp.json();
+    return getResponseData(resp);
   }
 
   static async poll(taskId) {
     const resp = await fetch(`/poll?taskId=${taskId}`);
-    return resp.json();
+    return getResponseData(resp);
   }
 
   static subscribe(taskId, handler) {
@@ -24,6 +47,6 @@ export default class API {
 
   static async listDir(path) {
     const resp = await fetch(`/list_folder?path=${path}`);
-    return resp.json();
+    return getResponseData(resp);
   }
 }

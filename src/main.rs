@@ -7,7 +7,7 @@ use analyzer::{Analyzer, AnalyzeRequest, Groups, FileInfo};
 use manager::{TaskManager, TaskResponse};
 use std::{
     path::PathBuf,
-    sync::Arc,
+    sync::Arc, time::Instant,
 };
 use serde::{Serialize, Deserialize};
 use eyre::Result;
@@ -22,7 +22,10 @@ use axum::{
     Router,
 };
 use tower::ServiceExt;
-use tower_http::services;
+use tower_http::{
+    services,
+    trace::TraceLayer,
+};
 use tokio::{
     task::JoinHandle,
     sync::{mpsc, oneshot, watch},
@@ -71,8 +74,10 @@ async fn task_analyzer(mut rx: mpsc::Receiver<AnalyzeCommand>) {
                 let engine = engine.clone();
                 let task_id = Uuid::new_v4();
                 manager.submit(task_id, move |tx| {
+                    let started = Instant::now();
                     let result = engine.analyze(&req, tx);
-                    tracing::info!("analyze task completed {:?}", req);
+                    let elapsed = started.elapsed();
+                    tracing::info!("analyze task {:?} completed in {:?}", req, elapsed);
                     result
                 });
                 if let Err(_) = tx.send(task_id) {
@@ -194,7 +199,8 @@ async fn main() -> Result<()> {
         .route("/subscribe", get(subscribe))
         .nest_service("/static", services::ServeDir::new("client/dist"))
         .nest_service("/assets", services::ServeDir::new("client/dist/assets"))
-        .with_state(shared_state);
+        .with_state(shared_state)
+        .layer(TraceLayer::new_for_http());
 
     axum::Server::bind(&"0.0.0.0:3000".parse()?)
         .serve(app.into_make_service())

@@ -9,6 +9,28 @@ const MODE_LIST = 'list';
 const MODE_PENDING = 'pending';
 const MODE_RESULT = 'result';
 
+function groupImages(images) {
+  const groups = {};
+
+  for (const file of images) {
+    const year = new Date(file.date).getFullYear();
+    if (!groups[year]) {
+      groups[year] = [];
+    }
+
+    groups[year].push(file);
+  }
+
+  return Object.entries(groups)
+    .sort((a, b) => b[0] - a[0])
+    .map(([key, items]) => {
+      return {
+        title: key,
+        items,
+      }
+    });
+}
+
 export default {
   methods: {
     async analyzePoll(taskId) {
@@ -38,16 +60,22 @@ export default {
     async analyze(params) {
       this.mode = MODE_PENDING;
       this.progress = 0;
-      const response = await API.analyze(this.path, params);
-      console.log(response);
-      //await this.analyzePoll();
 
-      API.subscribe(response.taskId, (progress) => {
-        this.progress = progress;
-        if (this.progress === 100) {
-          this.analyzePoll(response.taskId);
-        }
-      });
+      try {
+        const response = await API.analyze(this.path, params);
+        console.log(response);
+        //await this.analyzePoll();
+
+        API.subscribe(response.taskId, (progress) => {
+          this.progress = progress;
+          if (this.progress === 100) {
+            this.analyzePoll(response.taskId);
+          }
+        });
+      } catch (err) {
+        this.error = err;
+        this.mode = MODE_LIST;
+      }
     },
   },
 
@@ -62,6 +90,7 @@ export default {
       progress: 0,
       groups: undefined,
       mode: 0,
+      error: undefined,
     };
   },
 
@@ -78,28 +107,14 @@ export default {
   },
 
   mounted() {
-    API.listDir(this.path).then((images) => {
-      const groups = {};
-
-      for (const file of images) {
-        const year = new Date(file.date).getFullYear();
-        if (!groups[year]) {
-          groups[year] = [];
-        }
-
-        groups[year].push(file);
-      }
-
-      this.groups = Object.entries(groups).map(([year, items]) => {
-        return {
-          key: year,
-          title: year,
-          items,
-        }
-      }).sort((a, b) => b.key - a.key);
-
-      this.mode = MODE_LIST;
-    });
+    API.listDir(this.path)
+      .then((images) => {
+        this.groups = groupImages(images);
+        this.mode = MODE_LIST;
+      })
+      .catch((err) => {
+        this.error = err;
+      });
   },
 
   components: { ImageList, Preview, Settings, Navbar }
@@ -121,6 +136,10 @@ export default {
   </Navbar>
   <div class="content">
     <div class="container-fluid py-5">
+      <div v-if="error" class="alert alert-danger" role="alert">
+        <h4 class="alert-heading">Error</h4>
+        <p>{{ error.message }}</p>
+      </div>
       <div v-if="isPending">
         <p class="h3" style="text-align: center">Analyzing...</p>
         <div class="progress mx-3" role="progressbar" style="height: 20px">
