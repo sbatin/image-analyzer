@@ -1,8 +1,10 @@
+use eyre::Result;
+use image_hasher::{Hasher, ImageHash, HasherConfig, HashAlg};
+use rayon::prelude::*;
 use std::fs::{self, DirEntry};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::SystemTime;
-use image_hasher::{Hasher, ImageHash, HasherConfig, HashAlg};
-use eyre::Result;
 use tokio::sync::watch;
 
 use crate::cache::Cache;
@@ -132,23 +134,34 @@ impl Analyzer {
 
     fn compute_hashes(&self, req: &AnalyzeRequest, files: Vec<FileInfo>, tx: watch::Sender<usize>) -> Result<Hashes> {
         let hasher = Self::make_hasher(req);
-        let mut result = Vec::new();
-        let n = files.len();
+        let total = files.len();
 
-        for (i, file) in files.into_iter().enumerate() {
+        //let iter = files.into_iter();
+        let iter = files.into_par_iter();
+        let counter = AtomicUsize::new(0);
+
+        let result = iter.filter_map(|file| {
             tracing::info!(path = file.path.to_str(), "analyzing");
 
-            let key = (req.hash_type, req.hash_size, file.path.clone());
-            if let Some(hash) = self.cache.get(key)? {
-                result.push((file, hash));
-            } else if let Ok(image) = image::open(&file.path) {
-                let hash = hasher.hash_image(&image);
-                result.push((file, hash));
+            let prev = counter.fetch_add(1, Ordering::Relaxed);
+            let progress = prev * 100 / total;
+            if let Err(_) = tx.send(progress) {
+                tracing::error!(path = file.path.to_str(), "unable to report progress");
             }
 
-            let progress = (i + 1) * 100 / n;
-            tx.send(progress)?;
-        }
+            let key = (req.hash_type, req.hash_size, file.path.clone());
+            if let Ok(Some(hash)) = self.cache.get(key) {
+                Some((file, hash))
+            } else if let Ok(image) = image::open(&file.path) {
+                let hash = hasher.hash_image(&image);
+                Some((file, hash))
+            } else {
+                None
+            }
+        }).collect();
+
+        let progress = counter.into_inner() * 100 / total;
+        tx.send(progress)?;
 
         Ok(result)
     }
