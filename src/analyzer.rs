@@ -137,13 +137,12 @@ impl Analyzer {
     }
 
     fn compute_hash(&self, req: &AnalyzeRequest, hasher: &Hasher, file: FileInfo) -> Option<(FileInfo, ImageHash)> {
-        let path = file.path.to_str();
-        tracing::info!(path, "analyzing");
-
         let key = Self::cache_key(req, file.path.clone());
         if let Ok(Some(hash)) = self.cache.get(key) {
             Some((file, hash))
         } else {
+            let path = file.path.to_str();
+            tracing::info!(path, "analyzing");
             match image::open(&file.path) {
                 Ok(image) => {
                     let hash = hasher.hash_image(&image);
@@ -157,7 +156,8 @@ impl Analyzer {
         }
     }
 
-    fn compute_hashes(&self, req: &AnalyzeRequest, files: Vec<FileInfo>, tx: watch::Sender<usize>) -> Result<Hashes> {
+    fn compute_hashes(&self, req: &AnalyzeRequest, tx: watch::Sender<usize>) -> Result<Hashes> {
+        let files = list_dir(&req.path)?;
         let hasher = Self::make_hasher(req);
         let total = files.len();
         let iter = files.into_par_iter();
@@ -189,8 +189,7 @@ impl Analyzer {
     }
 
     pub fn analyze(&self, req: &AnalyzeRequest, tx: watch::Sender<usize>) -> Result<Groups> {
-        let files = list_dir(&req.path)?;
-        let hashes = self.compute_hashes(req, files, tx)?;
+        let hashes = self.compute_hashes(req, tx)?;
         let result = create_groups(&hashes, req.dist);
         self.update_cache(req, hashes)?;
         Ok(result)

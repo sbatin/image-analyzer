@@ -10,13 +10,13 @@ use std::{
     sync::Arc, time::Instant,
 };
 use serde::{Serialize, Deserialize};
-use eyre::Result;
+use eyre::{Result, Report};
 use axum::{
     http::{Request, StatusCode},
     extract::{Query, State},
     routing::{get, get_service, post},
     response::{
-        Json,
+        Json, IntoResponse, Response,
         sse::{Event, KeepAlive, Sse},
     },
     Router,
@@ -33,25 +33,6 @@ use tokio::{
 use futures::stream::{Stream, StreamExt};
 use tokio_stream::wrappers::WatchStream;
 use uuid::Uuid;
-
-#[derive(Serialize)]
-#[serde(tag = "type")]
-enum AnalyzeResponse {
-    Pending { progress: usize },
-    Completed { data: Groups },
-    Failed { error: String },
-}
-
-#[derive(Serialize, Deserialize)]
-struct PathParams {
-    path: PathBuf,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TaskParams {
-    task_id: Uuid,
-}
 
 type TaskResult = Result<Groups>;
 
@@ -70,7 +51,7 @@ async fn task_analyzer(mut rx: mpsc::Receiver<AnalyzeCommand>) {
     while let Some(command) = rx.recv().await {
         match command {
             AnalyzeCommand::Submit(req, tx) => {
-                tracing::info!("analyze task submit {:?}", req);
+                tracing::info!("analyze task {:?} submitted", req);
                 let engine = engine.clone();
                 let task_id = Uuid::new_v4();
                 manager.submit(task_id, move |tx| {
@@ -108,25 +89,79 @@ fn spawn_analyzer() -> (JoinHandle<()>, mpsc::Sender<AnalyzeCommand>) {
     (join_handle, tx)
 }
 
-async fn list_folder(Query(params): Query<PathParams>) -> Result<Json<Vec<FileInfo>>, StatusCode> {
-    let files = analyzer::list_dir(&params.path)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+enum AppError {
+    Internal(Report),
+    Provided(StatusCode),
+}
+
+impl AppError {
+    fn not_found() -> Self {
+        Self::Provided(StatusCode::NOT_FOUND)
+    }
+}
+
+impl<T> From<T> for AppError
+where
+    T: Into<Report>
+{
+    fn from(inner: T) -> Self {
+        Self::Internal(inner.into())
+    }
+}
+
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
+        let status_code = match self {
+            Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::Provided(code) => code,
+        };
+        status_code.into_response()
+    }
+}
+
+type JsonResponse<T> = Result<Json<T>, AppError>;
+
+#[derive(Clone)]
+struct AppState {
+    task_sender: mpsc::Sender<AnalyzeCommand>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type")]
+enum AnalyzeResponse {
+    Pending { progress: usize },
+    Completed { data: Groups },
+    Failed { error: String },
+}
+
+#[derive(Serialize, Deserialize)]
+struct PathParams {
+    path: PathBuf,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskParams {
+    task_id: Uuid,
+}
+
+async fn list_folder(Query(params): Query<PathParams>) -> JsonResponse<Vec<FileInfo>> {
+    let files = analyzer::list_dir(&params.path)?;
     Ok(Json(files))
 }
 
 async fn analyze(
     State(state): State<AppState>,
     Query(req): Query<AnalyzeRequest>,
-) -> Result<Json<TaskParams>, StatusCode> {
+) -> JsonResponse<TaskParams> {
     let (tx, rx) = oneshot::channel();
 
     state
         .task_sender
         .send(AnalyzeCommand::Submit(req, tx))
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .await?;
 
-    let task_id = rx.await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let task_id = rx.await?;
 
     Ok(Json(TaskParams { task_id }))
 }
@@ -134,17 +169,16 @@ async fn analyze(
 async fn poll(
     State(state): State<AppState>,
     Query(params): Query<TaskParams>,
-) -> Result<Json<AnalyzeResponse>, StatusCode> {
+) -> JsonResponse<AnalyzeResponse> {
     let (tx, rx) = oneshot::channel();
 
     state
         .task_sender
         .send(AnalyzeCommand::Poll(params.task_id, tx))
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .await?;
 
-    let resp = rx.await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let resp = resp.ok_or_else(|| StatusCode::NOT_FOUND)?;
+    let resp = rx.await?;
+    let resp = resp.ok_or_else(|| AppError::not_found())?;
     Ok(Json(match resp {
         TaskResponse::Pending(progress) => AnalyzeResponse::Pending { progress },
         TaskResponse::Completed(Ok(data)) => AnalyzeResponse::Completed { data },
@@ -155,7 +189,7 @@ async fn poll(
 async fn subscribe(
     State(state): State<AppState>,
     Query(params): Query<TaskParams>,
-) -> Result<Sse<impl Stream<Item = Result<Event, serde_json::error::Error>>>, StatusCode> {
+) -> Result<Sse<impl Stream<Item = serde_json::error::Result<Event>>>, AppError> {
     tracing::info!("SSE handler called {:?}", params.task_id);
 
     let (tx, rx) = oneshot::channel();
@@ -163,18 +197,12 @@ async fn subscribe(
     state
         .task_sender
         .send(AnalyzeCommand::Subscribe(params.task_id, tx))
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .await?;
 
-    let resp = rx.await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let resp = resp.ok_or_else(|| StatusCode::NOT_FOUND)?;
+    let resp = rx.await?;
+    let resp = resp.ok_or_else(|| AppError::not_found())?;
     let stream = WatchStream::new(resp).map(|p| Event::default().json_data(p));
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
-}
-
-#[derive(Clone)]
-struct AppState {
-    task_sender: mpsc::Sender<AnalyzeCommand>,
 }
 
 #[tokio::main]
