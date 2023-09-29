@@ -5,9 +5,12 @@ import Settings from './Settings.vue';
 import Navbar from './Navbar.vue';
 import API from './api';
 
-const MODE_LIST = 'list';
-const MODE_PENDING = 'pending';
-const MODE_RESULT = 'result';
+class Mode {
+  static UNKNOWN = 0;
+  static LIST = 1;
+  static PENDING = 2;
+  static READY = 3;
+}
 
 function groupImages(images) {
   const groups = {};
@@ -42,7 +45,7 @@ export default {
           break;
         }
         case 'Completed': {
-          this.mode = MODE_RESULT;
+          this.mode = Mode.READY;
           this.groups = resp.data
             .map((group) => group.sort((a, b) => b.date - a.date))
             .sort((a, b) => b[0].date - a[0].date)
@@ -58,7 +61,7 @@ export default {
     },
 
     async analyze(params) {
-      this.mode = MODE_PENDING;
+      this.mode = Mode.PENDING;
       this.progress = 0;
 
       try {
@@ -74,7 +77,7 @@ export default {
         });
       } catch (err) {
         this.error = err;
-        this.mode = MODE_LIST;
+        this.mode = Mode.LIST;
       }
     },
   },
@@ -88,21 +91,21 @@ export default {
       path,
       name: items[items.length - 1],
       progress: 0,
-      groups: undefined,
-      mode: 0,
+      groups: [],
+      mode: Mode.UNKNOWN,
       error: undefined,
     };
   },
 
   computed: {
     isList() {
-      return this.mode === MODE_LIST;
+      return this.mode === Mode.LIST;
     },
     isPending() {
-      return this.mode === MODE_PENDING;
+      return this.mode === Mode.PENDING;
     },
     isReady() {
-      return this.mode === MODE_RESULT;
+      return this.mode === Mode.READY;
     }
   },
 
@@ -110,7 +113,7 @@ export default {
     API.listDir(this.path)
       .then((images) => {
         this.groups = groupImages(images);
-        this.mode = MODE_LIST;
+        this.mode = Mode.LIST;
       })
       .catch((err) => {
         this.error = err;
@@ -146,7 +149,7 @@ export default {
           <div class="progress-bar progress-bar-striped progress-bar-animated" :style="`width: ${progress}%`"></div>
         </div>
       </div>
-      <div v-if="!isPending">
+      <div v-if="isList || isReady">
         <div class="row row-cols-auto img-group" v-for="group of groups">
           <div class="group-title">{{ group.title }}</div>
           <ImageList :images="group.items" @click="$refs.modal.open"/>
