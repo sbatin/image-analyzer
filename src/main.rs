@@ -2,18 +2,20 @@ mod analyzer;
 mod manager;
 mod cache;
 mod disjoint_set;
+mod remover;
 
 use analyzer::{Analyzer, AnalyzeRequest, Groups, FileInfo};
 use manager::{TaskManager, TaskResponse};
+use remover::{Remover, RemovedFile};
 use std::{
     path::PathBuf,
-    sync::Arc, time::Instant,
+    sync::Arc, time::Instant, convert::Infallible,
 };
 use serde::{Serialize, Deserialize};
 use eyre::{Result, Report};
 use axum::{
     http::{Request, StatusCode},
-    extract::{Query, State},
+    extract::{Query, State, Path},
     routing::{get, get_service, post},
     response::{
         Json, IntoResponse, Response,
@@ -121,9 +123,9 @@ impl IntoResponse for AppError {
 
 type JsonResponse<T> = Result<Json<T>, AppError>;
 
-#[derive(Clone)]
 struct AppState {
     task_sender: mpsc::Sender<AnalyzeCommand>,
+    remover: Remover,
 }
 
 #[derive(Serialize)]
@@ -150,8 +152,31 @@ async fn list_folder(Query(params): Query<PathParams>) -> JsonResponse<Vec<FileI
     Ok(Json(files))
 }
 
+async fn delete_file(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<PathParams>,
+) -> JsonResponse<String> {
+    let base_name = state.remover.remove(&params.path)?;
+    Ok(Json(base_name))
+}
+
+async fn restore_file(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> JsonResponse<PathBuf> {
+    let path = state.remover.restore(&id)?;
+    Ok(Json(path))
+}
+
+async fn list_deleted(
+    State(state): State<Arc<AppState>>,
+) -> JsonResponse<Vec<RemovedFile>> {
+    let files = state.remover.list_removed()?;
+    Ok(Json(files))
+}
+
 async fn analyze(
-    State(state): State<AppState>,
+    State(state): State<Arc<AppState>>,
     Query(req): Query<AnalyzeRequest>,
 ) -> JsonResponse<TaskParams> {
     let (tx, rx) = oneshot::channel();
@@ -167,7 +192,7 @@ async fn analyze(
 }
 
 async fn poll(
-    State(state): State<AppState>,
+    State(state): State<Arc<AppState>>,
     Query(params): Query<TaskParams>,
 ) -> JsonResponse<AnalyzeResponse> {
     let (tx, rx) = oneshot::channel();
@@ -187,7 +212,7 @@ async fn poll(
 }
 
 async fn subscribe(
-    State(state): State<AppState>,
+    State(state): State<Arc<AppState>>,
     Query(params): Query<TaskParams>,
 ) -> Result<Sse<impl Stream<Item = serde_json::error::Result<Event>>>, AppError> {
     tracing::info!("SSE handler called {:?}", params.task_id);
@@ -205,23 +230,50 @@ async fn subscribe(
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
+type FileResponse = Response<tower_http::services::fs::ServeFileSystemResponseBody>;
+
+async fn serve_image<T>(
+    Query(params): Query<PathParams>,
+    request: Request<T>,
+) -> Result<FileResponse, Infallible>
+where
+    T: Send + 'static
+{
+    let service = services::ServeFile::new(&params.path);
+    service.oneshot(request).await
+}
+
+async fn serve_deleted<T>(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    request: Request<T>,
+) -> Result<FileResponse, AppError>
+where
+    T: Send + 'static
+{
+    let path = state.remover.resolve(&id)?;
+    let service = services::ServeFile::new(&path);
+    let response = service.oneshot(request).await?;
+    Ok(response)
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt().init();
     tracing::info!("starting...");
 
     let (_, task_sender) = spawn_analyzer();
-    let shared_state = AppState { task_sender };
+    let remover = Remover::new("removed");
+    let shared_state = Arc::new(AppState { task_sender, remover });
 
     let app = Router::new()
         .route("/", get_service(services::ServeFile::new("client/dist/index.html")))
-        .route("/image", get(|request: Request<_>| {
-            // TODO: handle errors here
-            let params: Query<PathParams> = Query::try_from_uri(request.uri()).unwrap();
-            let service = services::ServeFile::new(&params.path);
-            service.oneshot(request)
-        }))
+        .route("/image", get(serve_image))
         .route("/list_folder", get(list_folder))
+        .route("/delete_file", post(delete_file))
+        .route("/deleted", get(list_deleted))
+        .route("/deleted/:id", get(serve_deleted))
+        .route("/deleted/:id/restore", post(restore_file))
         .route("/analyze", post(analyze))
         .route("/poll", get(poll))
         .route("/subscribe", get(subscribe))

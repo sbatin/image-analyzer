@@ -1,7 +1,7 @@
 export class HttpError extends Error {
   /**
-   * @param {number} status 
-   * @param {string} statusText 
+   * @param {number} status
+   * @param {string} statusText
    */
   constructor(status, statusText) {
     super(statusText);
@@ -26,7 +26,7 @@ export default class API {
     const resp = await fetch(`/analyze?path=${path}&dist=${params.distance}&hashType=${params.hashType}&hashSize=${params.hashSize}`, {
       method: 'POST',
     });
-  
+
     return getResponseData(resp);
   }
 
@@ -47,6 +47,25 @@ export default class API {
 
   static async listDir(path) {
     const resp = await fetch(`/list_folder?path=${path}`);
+    return getResponseData(resp);
+  }
+
+  static async deleteFile(path) {
+    const resp = await fetch(`/delete_file?path=${path}`, {
+      method: 'POST',
+    });
+    return getResponseData(resp);
+  }
+
+  static async restoreFile(id) {
+    const resp = await fetch(`/deleted/${id}/restore`, {
+      method: 'POST',
+    });
+    return getResponseData(resp);
+  }
+
+  static async listDeleted() {
+    const resp = await fetch(`/deleted`);
     return getResponseData(resp);
   }
 }

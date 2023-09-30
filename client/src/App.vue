@@ -1,10 +1,12 @@
 <script>
 import Home from './Home.vue';
 import Images from './Images.vue';
+import Deleted from './Deleted.vue';
 
 const routes = {
   '/': Home,
   '/images': Images,
+  '/deleted': Deleted,
 }
 
 export default {
@@ -25,8 +27,8 @@ export default {
 
   mounted() {
     window.addEventListener('hashchange', () => {
-		  this.currentPath = window.location.hash;
-		});
+      this.currentPath = window.location.hash;
+    });
   }
 }
 </script>

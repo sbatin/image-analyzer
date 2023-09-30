@@ -17,7 +17,21 @@
   }
 </script>
 <template>
-  <Navbar/>
+  <Navbar>
+    <div class="collapse navbar-collapse" id="navbarNav">
+      <ul class="navbar-nav">
+        <li class="nav-item">
+          <a class="nav-link active" href="#">Home</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link disabled" href="#images">Images</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="#deleted">Deleted</a>
+        </li>
+      </ul>
+    </div>
+  </Navbar>
   <div class="d-flex min-vh-100 justify-content-center align-items-center">
     <form class="row g-3">
       <div class="col-auto">

@@ -1,5 +1,6 @@
 <script>
   import * as bootstrap from 'bootstrap';
+  import API from './api.js';
 
   export default {
     props: ['path'],
@@ -15,6 +16,11 @@
       open(src) {
         this.image = src;
         this.modal.show();
+      },
+
+      async remove() {
+        await API.deleteFile(this.image);
+        this.modal.hide();
       }
     },
 
@@ -36,7 +42,7 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-          <button type="button" class="btn btn-danger">Remove</button>
+          <button type="button" class="btn btn-danger" @click="remove">Remove</button>
         </div>
       </div>
     </div>

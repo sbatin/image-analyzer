@@ -125,6 +125,19 @@ export default {
 </script>
 <template>
   <Navbar>
+    <div class="collapse navbar-collapse" id="navbarNav">
+      <ul class="navbar-nav">
+        <li class="nav-item">
+          <a class="nav-link" href="#">Home</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link active" :href="`#images?path=${path}`">Images</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="#deleted">Deleted</a>
+        </li>
+      </ul>
+    </div>
     <ol class="breadcrumb" style="margin: 0;">
       <li class="breadcrumb-item"><a href="#">Home</a></li>
       <li v-if="isList" class="breadcrumb-item active">{{ name }}</li>
