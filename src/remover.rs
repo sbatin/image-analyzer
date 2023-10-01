@@ -26,11 +26,11 @@ impl Remover {
     }
 
     fn meta_path(&self, id: &str) -> PathBuf {
-        self.root.join(id).with_extension("meta")
+        self.root.join(id).with_extension("json")
     }
 
     fn data_path(&self, id: &str) -> PathBuf {
-        self.root.join(id).with_extension("data")
+        self.root.join(id).with_extension("dat")
     }
 
     fn read_meta<T: DeserializeOwned>(&self, id: &str) -> Result<T> {
@@ -56,7 +56,7 @@ impl Remover {
     fn read_entry(&self, path: PathBuf) -> Option<RemovedFile> {
         let id = path.file_stem().and_then(|s| s.to_str())?;
         let ext = path.extension()?;
-        if ext == "meta" {
+        if ext == "json" {
             // read the original file path
             let path = self.read_meta(id).ok()?;
             Some(RemovedFile {
