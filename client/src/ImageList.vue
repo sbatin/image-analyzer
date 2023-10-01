@@ -1,6 +1,7 @@
 <script>
   export default {
-    props: ['images'],
+    props: ['images', 'selected'],
+    emits: ['click', 'dblclick'],
 
     data() {
       return {
@@ -38,8 +39,8 @@
 </script>
 <template>
   <div class="col" v-for="file of fileList">
-    <figure class="figure">
-      <a href="javascript:void(0)" @click="$emit('click', file.path)">
+    <figure :class="{ figure, selected: file.path === selected}">
+      <a href="javascript:void(0)" @dblclick="$emit('dblclick', file.path)" @click.stop.prevent="$emit('click', file.path)">
         <img class="figure-img img-fluid rounded" :src="`image?path=${file.path}`" :title="file.path"/>
       </a>
       <figcaption class="figure-caption img-title">{{ getFileName(file.path) }}</figcaption>
@@ -50,6 +51,9 @@
 <style scoped>
 .figure-img {
   max-height: 200px;
+}
+.selected .figure-img {
+  border: 3px solid #0d6efd;
 }
 .img-title {
   max-width: 150px;

@@ -62,6 +62,7 @@
       },
 
       async analyze(params) {
+        this.selected = undefined;
         this.mode = Mode.PENDING;
         this.progress = 0;
 
@@ -92,13 +93,21 @@
         }
       },
 
-      handleDeleted(path) {
-        console.log('deleted', path);
-        for (const group of this.groups) {
-          const i = group.items.findIndex((file) => file.path === path);
-          if (i >= 0) {
-            group.items.splice(i, 1);
+      async deleteFile() {
+        try {
+          await API.deleteFile(this.selected);
+          console.log('deleted', this.selected);
+
+          for (const group of this.groups) {
+            const i = group.items.findIndex((file) => file.path === this.selected);
+            if (i >= 0) {
+              group.items.splice(i, 1);
+            }
           }
+
+          this.selected = undefined;
+        } catch (err) {
+          this.error = err;
         }
       }
     },
@@ -113,6 +122,7 @@
         groups: [],
         mode: Mode.UNKNOWN,
         error: undefined,
+        selected: undefined,
       };
     },
 
@@ -153,8 +163,10 @@
     <button class="btn btn-outline-light" type="button" onclick="window.location.reload(true)" :disabled="isList">Show all</button>
     <span style="width:10px"/>
     <button class="btn btn-success" type="button" @click="$refs.settings.open" :disabled="isPending">Analyze</button>
+    <span style="width:10px"/>
+    <button class="btn btn-danger" type="button" @click="deleteFile" :disabled="!selected">Delete</button>
   </Navbar>
-  <div class="content">
+  <div class="content" @click="selected = undefined">
     <div class="container-fluid py-5">
       <Error :error="error"/>
       <div v-if="isPending">
@@ -166,12 +178,12 @@
       <div v-if="isList || isReady">
         <div class="row row-cols-auto img-group" v-for="group of groups">
           <div class="group-title">{{ group.title }}</div>
-          <ImageList :images="group.items" @click="$refs.modal.open"/>
+          <ImageList :images="group.items" :selected="selected" @click="(path) => selected = path" @dblclick="$refs.modal.open"/>
         </div>
       </div>
     </div>
   </div>
-  <Preview ref="modal" :path="path" @deleted="handleDeleted"/>
+  <Preview ref="modal"/>
   <Settings ref="settings" @submit="analyze"/>
 </template>
 <style scoped>
