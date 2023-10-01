@@ -1,127 +1,139 @@
 <script>
-import ImageList from './ImageList.vue';
-import Preview from './Preview.vue';
-import Settings from './Settings.vue';
-import Navbar from './Navbar.vue';
-import API from './api';
+  import Error from './Error.vue';
+  import ImageList from './ImageList.vue';
+  import Preview from './Preview.vue';
+  import Settings from './Settings.vue';
+  import Navbar from './Navbar.vue';
+  import API from './api';
 
-class Mode {
-  static UNKNOWN = 0;
-  static LIST = 1;
-  static PENDING = 2;
-  static READY = 3;
-}
-
-function groupImages(images) {
-  const groups = {};
-
-  for (const file of images) {
-    const year = new Date(file.date).getFullYear();
-    if (!groups[year]) {
-      groups[year] = [];
-    }
-
-    groups[year].push(file);
+  class Mode {
+    static UNKNOWN = 0;
+    static LIST = 1;
+    static PENDING = 2;
+    static READY = 3;
   }
 
-  return Object.entries(groups)
-    .sort((a, b) => b[0] - a[0])
-    .map(([key, items]) => {
-      return {
-        title: key,
-        items,
+  function groupImages(images) {
+    const groups = {};
+
+    for (const file of images) {
+      const year = new Date(file.date).getFullYear();
+      if (!groups[year]) {
+        groups[year] = [];
       }
-    });
-}
 
-export default {
-  methods: {
-    async analyzePoll(taskId) {
-      const resp = await API.poll(taskId);
-      switch (resp.type) {
-        case 'Pending': {
-          this.progress = resp.progress;
-          await this.analyzePoll(taskId);
-          break;
-        }
-        case 'Completed': {
-          this.mode = Mode.READY;
-          this.groups = resp.data
-            .map((group) => group.sort((a, b) => b.date - a.date))
-            .sort((a, b) => b[0].date - a[0].date)
-            .map((items, i) => {
-              return {
-                title: `Group ${i + 1} (${items.length} images)`,
-                items,
-              }
-            })
-          return;
-        }
-      }
-    },
-
-    async analyze(params) {
-      this.mode = Mode.PENDING;
-      this.progress = 0;
-
-      try {
-        const response = await API.analyze(this.path, params);
-        console.log(response);
-        //await this.analyzePoll();
-
-        API.subscribe(response.taskId, (progress) => {
-          this.progress = progress;
-          if (this.progress === 100) {
-            this.analyzePoll(response.taskId);
-          }
-        });
-      } catch (err) {
-        this.error = err;
-        this.mode = Mode.LIST;
-      }
-    },
-  },
-
-  data() {
-    const [, search] = window.location.hash.split('?');
-    const params = new URLSearchParams(search);
-    const path = params.get('path');
-    const items = path.split('/');
-    return {
-      path,
-      name: items[items.length - 1],
-      progress: 0,
-      groups: [],
-      mode: Mode.UNKNOWN,
-      error: undefined,
-    };
-  },
-
-  computed: {
-    isList() {
-      return this.mode === Mode.LIST;
-    },
-    isPending() {
-      return this.mode === Mode.PENDING;
-    },
-    isReady() {
-      return this.mode === Mode.READY;
+      groups[year].push(file);
     }
-  },
 
-  mounted() {
-    API.listDir(this.path)
-      .then((images) => {
-        this.groups = groupImages(images);
-        this.mode = Mode.LIST;
-      })
-      .catch((err) => {
-        this.error = err;
+    return Object.entries(groups)
+      .sort((a, b) => b[0] - a[0])
+      .map(([key, items]) => {
+        return {
+          title: key,
+          items,
+        }
       });
-  },
+  }
 
-  components: { ImageList, Preview, Settings, Navbar }
-}
+  export default {
+    methods: {
+      async analyzePoll(taskId) {
+        const resp = await API.poll(taskId);
+        switch (resp.type) {
+          case 'Pending': {
+            this.progress = resp.progress;
+            await this.analyzePoll(taskId);
+            break;
+          }
+          case 'Completed': {
+            this.mode = Mode.READY;
+            this.groups = resp.data
+              .map((group) => group.sort((a, b) => b.date - a.date))
+              .sort((a, b) => b[0].date - a[0].date)
+              .map((items, i) => {
+                return {
+                  title: `Group ${i + 1} (${items.length} images)`,
+                  items,
+                }
+              })
+            return;
+          }
+        }
+      },
+
+      async analyze(params) {
+        this.mode = Mode.PENDING;
+        this.progress = 0;
+
+        try {
+          const response = await API.analyze(this.path, params);
+          console.log(response);
+          //await this.analyzePoll();
+
+          API.subscribe(response.taskId, (progress) => {
+            this.progress = progress;
+            if (this.progress === 100) {
+              this.analyzePoll(response.taskId);
+            }
+          });
+        } catch (err) {
+          this.error = err;
+          this.mode = Mode.LIST;
+        }
+      },
+
+      async refresh() {
+        try {
+          const images = await API.listDir(this.path)
+          this.groups = groupImages(images);
+          this.mode = Mode.LIST;
+        } catch (err) {
+          this.error = err;
+        }
+      },
+
+      handleDeleted(path) {
+        console.log('deleted', path);
+        for (const group of this.groups) {
+          const i = group.items.findIndex((file) => file.path === path);
+          if (i >= 0) {
+            group.items.splice(i, 1);
+          }
+        }
+      }
+    },
+
+    data() {
+      const [, search] = window.location.hash.split('?');
+      const params = new URLSearchParams(search);
+      const path = params.get('path');
+      return {
+        path,
+        progress: 0,
+        groups: [],
+        mode: Mode.UNKNOWN,
+        error: undefined,
+      };
+    },
+
+    computed: {
+      isList() {
+        return this.mode === Mode.LIST;
+      },
+      isPending() {
+        return this.mode === Mode.PENDING;
+      },
+      isReady() {
+        return this.mode === Mode.READY;
+      }
+    },
+
+    mounted() {
+      this.refresh();
+    },
+
+    components: { Error, ImageList, Preview, Settings, Navbar }
+  }
 </script>
 <template>
   <Navbar>
@@ -138,24 +150,13 @@ export default {
         </li>
       </ul>
     </div>
-    <ol class="breadcrumb" style="margin: 0;">
-      <li class="breadcrumb-item"><a href="#">Home</a></li>
-      <li v-if="isList" class="breadcrumb-item active">{{ name }}</li>
-      <li v-if="isReady || isPending" class="breadcrumb-item">
-        <a :href="`#images?path=${path}`" onclick="window.location.reload(true)">
-          {{ name }}
-        </a>
-      </li>
-      <li v-if="isReady" class="breadcrumb-item active">Analyzed</li>
-    </ol>
+    <button class="btn btn-outline-light" type="button" onclick="window.location.reload(true)" :disabled="isList">Show all</button>
+    <span style="width:10px"/>
     <button class="btn btn-success" type="button" @click="$refs.settings.open" :disabled="isPending">Analyze</button>
   </Navbar>
   <div class="content">
     <div class="container-fluid py-5">
-      <div v-if="error" class="alert alert-danger" role="alert">
-        <h4 class="alert-heading">Error</h4>
-        <p>{{ error.message }}</p>
-      </div>
+      <Error :error="error"/>
       <div v-if="isPending">
         <p class="h3" style="text-align: center">Analyzing...</p>
         <div class="progress mx-3" role="progressbar" style="height: 20px">
@@ -170,7 +171,7 @@ export default {
       </div>
     </div>
   </div>
-  <Preview ref="modal" :path="path"/>
+  <Preview ref="modal" :path="path" @deleted="handleDeleted"/>
   <Settings ref="settings" @submit="analyze"/>
 </template>
 <style scoped>
@@ -180,9 +181,6 @@ export default {
 .img-group {
   border-top: 1px solid var(--bs-border-color);
   padding: 20px 0;
-}
-.breadcrumb-item a {
-  color: white;
 }
 .row {
   padding: 0 40px;

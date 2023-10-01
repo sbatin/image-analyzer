@@ -1,50 +1,51 @@
 <script>
-import Navbar from './Navbar.vue';
-import API from './api';
+  import Error from './Error.vue';
+  import Navbar from './Navbar.vue';
+  import API from './api';
 
-export default {
-  methods: {
-    getFileName(path) {
-      const parts = path.split('/');
-      return parts[parts.length - 1];
-    },
+  export default {
+    methods: {
+      getFileName(path) {
+        const parts = path.split('/');
+        return parts[parts.length - 1];
+      },
 
-    async restore() {
-      if (this.selected) {
+      async restore() {
+        if (this.selected) {
+          try {
+            await API.restoreFile(this.selected);
+            this.selected = undefined;
+          } catch (err) {
+            this.error = err;
+          }
+
+          await this.refresh();
+        }
+      },
+
+      async refresh() {
         try {
-          await API.restoreFile(this.selected);
-          this.selected = undefined;
+          this.items = await API.listDeleted(this.path);
         } catch (err) {
           this.error = err;
         }
-
-        await this.refresh();
-      }
+      },
     },
 
-    async refresh() {
-      try {
-        this.items = await API.listDeleted(this.path);
-      } catch (err) {
-        this.error = err;
-      }
+    data() {
+      return {
+        items: [],
+        selected: undefined,
+        error: undefined,
+      };
     },
-  },
 
-  data() {
-    return {
-      items: [],
-      selected: undefined,
-      error: undefined,
-    };
-  },
+    mounted() {
+      this.refresh();
+    },
 
-  mounted() {
-    this.refresh();
-  },
-
-  components: { Navbar }
-}
+    components: { Error, Navbar }
+  }
 </script>
 <template>
   <Navbar>
@@ -63,16 +64,16 @@ export default {
     </div>
     <button class="btn btn-success" type="button" @click="restore" :disabled="!selected">Restore</button>
   </Navbar>
-  <div class="content">
+  <div class="content" @click="selected = undefined">
     <div class="container-fluid py-5">
-      <div v-if="error" class="alert alert-danger" role="alert">
-        <h4 class="alert-heading">Error</h4>
-        <p>{{ error.message }}</p>
-      </div>
-      <div class="row row-cols-auto" @click="selected = undefined">
+      <Error :error="error"/>
+      <h4 class="display-4 text-secondary" v-if="items.length === 0">You don't have any removed files</h4>
+      <div class="row row-cols-auto">
         <div class="col" v-for="file of items">
-          <figure :class="{ figure, selected: file.id === selected}" @click.stop.prevent="selected = file.id">
-            <img class="figure-img img-fluid rounded" :src="`deleted/${file.id}`" :title="file.path"/>
+          <figure :class="{ figure, selected: file.id === selected}">
+            <a href="javascript:void(0)" @click.stop.prevent="selected = file.id">
+              <img class="figure-img img-fluid rounded" :src="`deleted/${file.id}`" :title="file.path"/>
+            </a>
             <figcaption class="figure-caption img-title">{{ getFileName(file.path) }}</figcaption>
           </figure>
         </div>
@@ -83,6 +84,10 @@ export default {
 <style scoped>
 .content {
   padding-top: 60px;
+  height: 100vh;
+}
+.display-4 {
+  text-align: center;
 }
 .row {
   padding: 0 40px;

@@ -4,6 +4,7 @@
 
   export default {
     props: ['path'],
+    emits: ['deleted'],
 
     data() {
       return {
@@ -18,8 +19,9 @@
         this.modal.show();
       },
 
-      async remove() {
+      async deleteFile() {
         await API.deleteFile(this.image);
+        this.$emit('deleted', this.image);
         this.modal.hide();
       }
     },
@@ -42,7 +44,7 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-          <button type="button" class="btn btn-danger" @click="remove">Remove</button>
+          <button type="button" class="btn btn-danger" @click="deleteFile">Delete</button>
         </div>
       </div>
     </div>
