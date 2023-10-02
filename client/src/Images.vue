@@ -5,6 +5,7 @@
   import Settings from './Settings.vue';
   import Navbar from './Navbar.vue';
   import API from './api';
+  import * as bootstrap from 'bootstrap';
 
   class Mode {
     static UNKNOWN = 0;
@@ -30,7 +31,7 @@
       .map(([key, items]) => {
         return {
           title: key,
-          items,
+          items: items.sort((a, b) => b.date - a.date),
         }
       });
   }
@@ -62,7 +63,6 @@
       },
 
       async analyze(params) {
-        this.selected = undefined;
         this.mode = Mode.PENDING;
         this.progress = 0;
 
@@ -92,24 +92,6 @@
           this.error = err;
         }
       },
-
-      async deleteFile() {
-        try {
-          await API.deleteFile(this.selected);
-          console.log('deleted', this.selected);
-
-          for (const group of this.groups) {
-            const i = group.items.findIndex((file) => file.path === this.selected);
-            if (i >= 0) {
-              group.items.splice(i, 1);
-            }
-          }
-
-          this.selected = undefined;
-        } catch (err) {
-          this.error = err;
-        }
-      }
     },
 
     data() {
@@ -122,7 +104,6 @@
         groups: [],
         mode: Mode.UNKNOWN,
         error: undefined,
-        selected: undefined,
       };
     },
 
@@ -163,10 +144,9 @@
     <button class="btn btn-outline-light" type="button" onclick="window.location.reload(true)" :disabled="isList">Show all</button>
     <span style="width:10px"/>
     <button class="btn btn-success" type="button" @click="$refs.settings.open" :disabled="isPending">Analyze</button>
-    <span style="width:10px"/>
-    <button class="btn btn-danger" type="button" @click="deleteFile" :disabled="!selected">Delete</button>
   </Navbar>
-  <div class="content" @click="selected = undefined">
+  <div class="content">
+    <Preview ref="preview"/>
     <div class="container-fluid py-5">
       <Error :error="error"/>
       <div v-if="isPending">
@@ -178,17 +158,16 @@
       <div v-if="isList || isReady">
         <div class="row row-cols-auto img-group" v-for="group of groups">
           <div class="group-title">{{ group.title }}</div>
-          <ImageList :images="group.items" :selected="selected" @click="(path) => selected = path" @dblclick="$refs.modal.open"/>
+          <ImageList :files="group.items" @click="(path) => $refs.preview.show(group, path)"/>
         </div>
       </div>
     </div>
   </div>
-  <Preview ref="modal"/>
   <Settings ref="settings" @submit="analyze"/>
 </template>
 <style scoped>
 .content {
-  padding-top: 60px;
+  padding-top: 56px;
 }
 .img-group {
   border-top: 1px solid var(--bs-border-color);
