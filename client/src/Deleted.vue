@@ -14,7 +14,6 @@
         if (this.selected) {
           try {
             await API.restoreFile(this.selected);
-            this.selected = undefined;
           } catch (err) {
             this.error = err;
           }
@@ -23,7 +22,18 @@
         }
       },
 
+      async restoreAll() {
+        try {
+          await API.restoreAll();
+        } catch (err) {
+          this.error = err;
+        }
+
+        await this.refresh();
+      },
+
       async refresh() {
+        this.selected = undefined;
         try {
           this.items = await API.listDeleted(this.path);
         } catch (err) {
@@ -63,6 +73,8 @@
       </ul>
     </div>
     <button class="btn btn-success" type="button" @click="restore" :disabled="!selected">Restore</button>
+    <span style="width:10px"/>
+    <button class="btn btn-success" type="button" @click="restoreAll" :disabled="items.length === 0">Restore All</button>
   </Navbar>
   <div class="content" @click="selected = undefined">
     <div class="container-fluid py-5">

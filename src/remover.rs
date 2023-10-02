@@ -106,4 +106,13 @@ impl Remover {
 
         Ok(files)
     }
+
+    pub fn restore_all(&self) -> Result<()> {
+        let files = self.list_removed()?;
+        for file in files {
+            self.restore(&file.id)?;
+        }
+
+        Ok(())
+    }
 }

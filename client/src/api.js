@@ -64,6 +64,16 @@ export default class API {
     return getResponseData(resp);
   }
 
+  static async restoreAll() {
+    const resp = await fetch(`/deleted/restore_all`, {
+      method: 'POST',
+    });
+
+    if (!resp.ok) {
+      throw new HttpError(resp.status, resp.statusText);
+    }
+  }
+
   static async listDeleted() {
     const resp = await fetch(`/deleted`);
     return getResponseData(resp);

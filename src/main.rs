@@ -121,7 +121,8 @@ impl IntoResponse for AppError {
     }
 }
 
-type JsonResponse<T> = Result<Json<T>, AppError>;
+type AppResult<T> = Result<T, AppError>;
+type JsonResponse<T> = AppResult<Json<T>>;
 
 struct AppState {
     task_sender: mpsc::Sender<AnalyzeCommand>,
@@ -166,6 +167,13 @@ async fn restore_file(
 ) -> JsonResponse<PathBuf> {
     let path = state.remover.restore(&id)?;
     Ok(Json(path))
+}
+
+async fn restore_all(
+    State(state): State<Arc<AppState>>,
+) -> AppResult<()> {
+    state.remover.restore_all()?;
+    Ok(())
 }
 
 async fn list_deleted(
@@ -214,7 +222,7 @@ async fn poll(
 async fn subscribe(
     State(state): State<Arc<AppState>>,
     Query(params): Query<TaskParams>,
-) -> Result<Sse<impl Stream<Item = serde_json::error::Result<Event>>>, AppError> {
+) -> AppResult<Sse<impl Stream<Item = serde_json::error::Result<Event>>>> {
     tracing::info!("SSE handler called {:?}", params.task_id);
 
     let (tx, rx) = oneshot::channel();
@@ -247,7 +255,7 @@ async fn serve_deleted<T>(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     request: Request<T>,
-) -> Result<FileResponse, AppError>
+) -> AppResult<FileResponse>
 where
     T: Send + 'static
 {
@@ -274,6 +282,7 @@ async fn main() -> Result<()> {
         .route("/deleted", get(list_deleted))
         .route("/deleted/:id", get(serve_deleted))
         .route("/deleted/:id/restore", post(restore_file))
+        .route("/deleted/restore_all", post(restore_all))
         .route("/analyze", post(analyze))
         .route("/poll", get(poll))
         .route("/subscribe", get(subscribe))
