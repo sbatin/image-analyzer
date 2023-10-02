@@ -34,6 +34,9 @@
       },
 
       async deleteFile() {
+        if (!confirm(`Are you sure you want to delete ${this.selected}?`)) {
+          return;
+        }
         try {
           await API.deleteFile(this.selected);
           console.log('deleted', this.selected);
