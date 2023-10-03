@@ -8,18 +8,22 @@
       return {
         files: [],
         active: 0,
-        selected: undefined,
+        selected: 0,
         modal: undefined,
-        title: '',
+      }
+    },
+
+    computed: {
+      selectedFile() {
+        return this.files[this.selected];
       }
     },
 
     methods: {
-      show(group, selected) {
-        this.selected = selected;
-        this.files = group.items;
-        this.title = group.title;
-        this.active = this.files.findIndex((file) => file.path === selected);
+      show(files, path) {
+        this.files = files;
+        this.active = this.files.findIndex((file) => file.path === path);
+        this.selected = this.active;
         this.modal.show();
       },
 
@@ -30,27 +34,24 @@
       },
 
       getFileName(path) {
-        return utils.getFileName(path);
+        return path ? utils.getFileName(path) : '';
       },
 
       async deleteFile() {
-        if (!confirm(`Are you sure you want to delete ${this.selected}?`)) {
+        const path = this.selectedFile?.path;
+
+        if (!confirm(`Are you sure you want to delete ${path}?`)) {
           return;
         }
         try {
-          await API.deleteFile(this.selected);
-          console.log('deleted', this.selected);
+          await API.deleteFile(path);
+          console.log('deleted', path);
 
-          const index = this.files.findIndex((file) => file.path === this.selected);
-          if (index >= 0) {
-            this.files.splice(index, 1);
-          }
-
+          this.files.splice(this.selected, 1);
           if (this.files.length === 0) {
             this.modal.hide();
           } else {
-            this.active = index;
-            this.selected = undefined;
+            this.active = this.selected;
           }
         } catch (err) {
           console.error(err);
@@ -63,12 +64,12 @@
 
       this.$refs.modal.addEventListener('hide.bs.modal', (event) => {
         this.active = 0;
-        this.selected = undefined;
+        this.selected = 0;
         this.files = [];
       });
 
       this.$refs.carousel.addEventListener('slide.bs.carousel', (event) => {
-        this.selected = this.files[event.to].path;
+        this.selected = event.to;
       });
     },
   }
@@ -83,7 +84,7 @@
             <img src="/public/favicon.ico" alt="Logo" width="30" height="24" class="d-inline-block align-text-top">
             Image Analyzer
           </span>
-          <span class="navbar-text">{{ title }}</span>
+          <span class="navbar-text">{{ selectedFile?.relativePath }}</span>
           <div>
             <button class="btn btn-outline-danger mx-2" type="button" @click="deleteFile">
               <i class="bi bi-trash"></i>
@@ -98,14 +99,14 @@
       </nav>
       <div id="pv-images" ref="carousel" class="carousel slide carousel-fade">
         <div class="carousel-indicators">
-          <button v-for="(file, index) in files" type="button" data-bs-target="#pv-images" :data-bs-slide-to="index" :class="{active: index === active}"></button>
+          <button v-for="(_, i) in files" type="button" data-bs-target="#pv-images" :data-bs-slide-to="i" :class="{active: i === active}"></button>
         </div>
         <div class="carousel-inner">
-          <div v-for="(file, index) in files" :class="['carousel-item', index === active ? 'active' : '']">
+          <div v-for="(file, i) in files" :class="['carousel-item', i === active ? 'active' : '']">
             <div class="d-flex justify-content-center">
-              <img :src="`image?path=${file.path}`" class="d-block" :title="file.path"/>
+              <img :src="`image?path=${file.path}`" class="d-block"/>
               <div class="carousel-caption d-none d-md-block">
-                <h5>{{ getFileName(file.path) }}</h5>
+                <h5>{{ i + 1 }} / {{ files.length }}</h5>
                 <p>{{ formatFile(file) }}</p>
               </div>
             </div>

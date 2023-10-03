@@ -14,49 +14,60 @@
     static READY = 3;
   }
 
-  function groupImages(images) {
-    const groups = {};
-
-    for (const file of images) {
-      const year = new Date(file.date).getFullYear();
-      if (!groups[year]) {
-        groups[year] = [];
-      }
-
-      groups[year].push(file);
-    }
-
-    return Object.entries(groups)
-      .sort((a, b) => b[0] - a[0])
-      .map(([key, items]) => {
-        return {
-          title: key,
-          items: items.sort((a, b) => b.date - a.date),
-        }
-      });
-  }
-
   export default {
     methods: {
+      addRelativePath(file) {
+        const n = this.path.length;
+        file.relativePath = file.path.substring(n + 1);
+        return file;
+      },
+
+      groupImages(images) {
+        const groups = {};
+
+        for (const file of images) {
+          const year = new Date(file.date).getFullYear();
+          if (!groups[year]) {
+            groups[year] = [];
+          }
+
+          groups[year].push(file);
+        }
+
+        return Object.entries(groups)
+          .sort((a, b) => b[0] - a[0])
+          .map(([title, files]) => {
+            const items = files
+              .map((file) => this.addRelativePath(file))
+              .sort((a, b) => b.date - a.date);
+
+            return { title, items };
+          });
+      },
+
+      processGroups(groups) {
+        return groups
+          .map((group) => group.sort((a, b) => b.date - a.date))
+          .sort((a, b) => b[0].date - a[0].date)
+          .map((files, i) => {
+            const items = files.map((file) => this.addRelativePath(file));
+            return {
+              title: `Group ${i + 1} (${items.length} images)`,
+              items,
+            }
+          });
+      },
+
       async analyzePoll(taskId) {
         const resp = await API.poll(taskId);
         switch (resp.type) {
           case 'Pending': {
             this.progress = resp.progress;
-            await this.analyzePoll(taskId);
-            break;
+            return this.analyzePoll(taskId);
           }
           case 'Completed': {
             this.mode = Mode.READY;
-            this.groups = resp.data
-              .map((group) => group.sort((a, b) => b.date - a.date))
-              .sort((a, b) => b[0].date - a[0].date)
-              .map((items, i) => {
-                return {
-                  title: `Group ${i + 1} (${items.length} images)`,
-                  items,
-                }
-              })
+            this.groups = this.processGroups(resp.data);
             return;
           }
         }
@@ -86,7 +97,7 @@
       async refresh() {
         try {
           const images = await API.listDir(this.path)
-          this.groups = groupImages(images);
+          this.groups = this.groupImages(images);
           this.mode = Mode.LIST;
         } catch (err) {
           this.error = err;
@@ -158,7 +169,7 @@
       <div v-if="isList || isReady">
         <div class="row row-cols-auto img-group" v-for="group of groups">
           <div class="group-title">{{ group.title }}</div>
-          <ImageList :files="group.items" @click="(path) => $refs.preview.show(group, path)"/>
+          <ImageList :files="group.items" @click="(path) => $refs.preview.show(group.items, path)"/>
         </div>
       </div>
     </div>
