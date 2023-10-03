@@ -81,7 +81,7 @@
         <div class="container-fluid">
           <span class="navbar-brand">
             <img src="/public/favicon.ico" alt="Logo" width="30" height="24" class="d-inline-block align-text-top">
-            Image DeDup
+            Image Analyzer
           </span>
           <span class="navbar-text">{{ title }}</span>
           <div>

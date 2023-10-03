@@ -3,7 +3,7 @@
     <div class="container-fluid">
       <a class="navbar-brand" href="#">
         <img src="/public/favicon.ico" alt="Logo" width="30" height="24" class="d-inline-block align-text-top">
-        Image DeDup
+        Image Analyzer
       </a>
       <slot/>
     </div>
