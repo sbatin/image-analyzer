@@ -168,8 +168,6 @@ async fn delete_file(
     State(state): State<Arc<AppState>>,
     Query(params): Query<PathParams>,
 ) -> JsonResponse<String> {
-    check_path(&params.path)?;
-
     let base_name = state.remover.remove(&params.path)?;
     Ok(Json(base_name))
 }
