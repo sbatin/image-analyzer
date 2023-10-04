@@ -12,8 +12,8 @@
         return `${date} (${size})`;
       },
 
-      getFileName(path) {
-        return utils.getFileName(path);
+      getFileName(file) {
+        return utils.getFileName(file.path);
       },
     }
   }
@@ -24,7 +24,7 @@
       <a href="javascript:void(0)" @click="$emit('click', file.path)">
         <img class="figure-img img-fluid rounded" :src="`image?path=${file.path}`" :title="file.relativePath"/>
       </a>
-      <figcaption class="figure-caption img-title">{{ getFileName(file.path) }}</figcaption>
+      <figcaption class="figure-caption img-title">{{ getFileName(file) }}</figcaption>
       <figcaption class="figure-caption">{{ formatFile(file) }}</figcaption>
     </figure>
   </div>

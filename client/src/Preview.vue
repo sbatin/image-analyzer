@@ -35,10 +35,6 @@
         return `${date} (${size})`;
       },
 
-      getFileName(path) {
-        return path ? utils.getFileName(path) : '';
-      },
-
       async deleteFile() {
         const path = this.selectedFile?.path;
 

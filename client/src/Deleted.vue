@@ -2,12 +2,12 @@
   import Error from './Error.vue';
   import Navbar from './Navbar.vue';
   import API from './api';
+  import utils from './utils.js';
 
   export default {
     methods: {
-      getFileName(path) {
-        const parts = path.split('/');
-        return parts[parts.length - 1];
+      getFileName(file) {
+        return utils.getFileName(file.path);
       },
 
       async restore() {
@@ -86,7 +86,7 @@
             <a href="javascript:void(0)" @click.stop.prevent="selected = file.id">
               <img class="figure-img img-fluid rounded" :src="`deleted/${file.id}`" :title="file.path"/>
             </a>
-            <figcaption class="figure-caption img-title">{{ getFileName(file.path) }}</figcaption>
+            <figcaption class="figure-caption img-title">{{ getFileName(file) }}</figcaption>
           </figure>
         </div>
       </div>
