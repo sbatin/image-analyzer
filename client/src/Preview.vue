@@ -10,6 +10,8 @@
         active: 0,
         selected: 0,
         modal: undefined,
+        hide_bs_modal: 'hide.bs.modal',
+        slide_bs_carousel: 'slide.bs.carousel',
       }
     },
 
@@ -56,26 +58,22 @@
         } catch (err) {
           console.error(err);
         }
-      }
-    },
+      },
 
-    mounted() {
-      this.modal = new bootstrap.Modal('#preview-modal');
-
-      this.$refs.modal.addEventListener('hide.bs.modal', (event) => {
+      onHide(event) {
         this.active = 0;
         this.selected = 0;
         this.files = [];
-      });
+      },
+    },
 
-      this.$refs.carousel.addEventListener('slide.bs.carousel', (event) => {
-        this.selected = event.to;
-      });
+    mounted() {
+      this.modal = new bootstrap.Modal(this.$refs.modal);
     },
   }
 </script>
 <template>
-  <div id="preview-modal" ref="modal" class="modal" tabindex="-1">
+  <div ref="modal" class="modal" tabindex="-1" @[hide_bs_modal]="onHide">
     <div class="modal-dialog modal-fullscreen">
       <div class="modal-content">
       <nav class="navbar bg-body-tertiary" data-bs-theme="dark">
@@ -90,16 +88,15 @@
               <i class="bi bi-trash"></i>
               Delete
             </button>
-            <button class="btn btn-outline-light" type="button" data-bs-dismiss="modal">
+            <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">
               <i class="bi bi-x-lg"></i>
             </button>
-            <!--button type="button" class="btn-close" data-bs-dismiss="modal"></button-->
           </div>
         </div>
       </nav>
-      <div id="pv-images" ref="carousel" class="carousel slide carousel-fade">
+      <div id="pv-mod-images" class="carousel slide carousel-fade" @[slide_bs_carousel]="(event) => selected = event.to">
         <div class="carousel-indicators">
-          <button v-for="(_, i) in files" type="button" data-bs-target="#pv-images" :data-bs-slide-to="i" :class="{active: i === active}"></button>
+          <button v-for="(_, i) in files" type="button" data-bs-target="#pv-mod-images" :data-bs-slide-to="i" :class="{active: i === active}"></button>
         </div>
         <div class="carousel-inner">
           <div v-for="(file, i) in files" :class="['carousel-item', i === active ? 'active' : '']">
@@ -112,11 +109,11 @@
             </div>
           </div>
         </div>
-        <button class="carousel-control-prev" type="button" data-bs-target="#pv-images" data-bs-slide="prev">
+        <button class="carousel-control-prev" type="button" data-bs-target="#pv-mod-images" data-bs-slide="prev">
           <span class="carousel-control-prev-icon"></span>
           <span class="visually-hidden">Previous</span>
         </button>
-        <button class="carousel-control-next" type="button" data-bs-target="#pv-images" data-bs-slide="next">
+        <button class="carousel-control-next" type="button" data-bs-target="#pv-mod-images" data-bs-slide="next">
           <span class="carousel-control-next-icon"></span>
           <span class="visually-hidden">Next</span>
         </button>

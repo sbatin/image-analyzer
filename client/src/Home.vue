@@ -10,7 +10,7 @@
     methods: {
       navigate() {
         window.location.hash = `#images?path=${this.path}`;
-      }
+      },
     },
 
     components: { Navbar },
@@ -43,3 +43,8 @@
     </form>
   </div>
 </template>
+<style scoped>
+  .form-control-lg {
+    width: 500px;
+  }
+</style>
