@@ -33,12 +33,12 @@
     </div>
   </Navbar>
   <div class="d-flex min-vh-100 justify-content-center align-items-center">
-    <form class="row g-3">
+    <form class="row g-3" @submit.prevent="navigate">
       <div class="col-auto">
         <input type="text" name="path" class="form-control form-control-lg" placeholder="Path" v-model="path"/>
       </div>
       <div class="col-auto">
-        <button type="button" class="btn btn-primary btn-lg mb-3" @click="navigate">Open</button>
+        <button type="submit" class="btn btn-primary btn-lg mb-3" :disabled="!path">Open</button>
       </div>
     </form>
   </div>
