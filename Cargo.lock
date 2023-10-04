@@ -625,6 +625,7 @@ dependencies = [
  "futures",
  "image",
  "image_hasher",
+ "log",
  "rayon",
  "serde",
  "serde_json",

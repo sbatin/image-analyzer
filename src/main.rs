@@ -7,18 +7,19 @@ mod remover;
 use analyzer::{Analyzer, AnalyzeRequest, Groups, FileInfo};
 use manager::{TaskManager, TaskResponse};
 use remover::{Remover, RemovedFile};
+use tracing::Span;
 use std::{
     path::PathBuf,
-    sync::Arc, time::Instant, convert::Infallible,
+    sync::Arc, time::{Instant, Duration}, convert::Infallible,
 };
 use serde::{Serialize, Deserialize};
 use eyre::{Result, Report};
 use axum::{
-    http::{Request, StatusCode},
+    http::{Request, StatusCode, Response},
     extract::{Query, State, Path},
     routing::{get, get_service, post},
     response::{
-        Json, IntoResponse, Response,
+        Json, IntoResponse,
         sse::{Event, KeepAlive, Sse},
     },
     Router,
@@ -112,7 +113,7 @@ where
 }
 
 impl IntoResponse for AppError {
-    fn into_response(self) -> Response {
+    fn into_response(self) -> axum::response::Response {
         let status_code = match self {
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::Provided(code) => code,
@@ -148,7 +149,17 @@ struct TaskParams {
     task_id: Uuid,
 }
 
+fn check_path(path: &std::path::Path) -> AppResult<()> {
+    if !path.is_dir() {
+        Err(AppError::not_found())
+    } else {
+        Ok(())
+    }
+}
+
 async fn list_folder(Query(params): Query<PathParams>) -> JsonResponse<Vec<FileInfo>> {
+    check_path(&params.path)?;
+
     let files = analyzer::list_dir(&params.path)?;
     Ok(Json(files))
 }
@@ -157,6 +168,8 @@ async fn delete_file(
     State(state): State<Arc<AppState>>,
     Query(params): Query<PathParams>,
 ) -> JsonResponse<String> {
+    check_path(&params.path)?;
+
     let base_name = state.remover.remove(&params.path)?;
     Ok(Json(base_name))
 }
@@ -165,6 +178,8 @@ async fn restore_file(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> JsonResponse<PathBuf> {
+    // TODO: check id
+
     let path = state.remover.restore(&id)?;
     Ok(Json(path))
 }
@@ -187,6 +202,8 @@ async fn analyze(
     State(state): State<Arc<AppState>>,
     Query(req): Query<AnalyzeRequest>,
 ) -> JsonResponse<TaskParams> {
+    check_path(&req.path)?;
+
     let (tx, rx) = oneshot::channel();
 
     state
@@ -274,6 +291,27 @@ async fn main() -> Result<()> {
     let remover = Remover::new("removed");
     let shared_state = Arc::new(AppState { task_sender, remover });
 
+    let http_logger = TraceLayer::new_for_http()
+        .make_span_with(|req: &Request<_>| {
+            let path = req.uri().path();
+            let method = req.method().as_str();
+            let status = tracing::field::Empty;
+            tracing::info_span!("http", method, path, status)
+        })
+        .on_response(|resp: &Response<_>, elapsed: Duration, span: &Span| {
+            let status = resp.status().as_u16();
+            span.record("status", status);
+            let level = if status >= 500 {
+                log::Level::Error
+            } else if status >= 400 {
+                log::Level::Warn
+            } else {
+                log::Level::Info
+            };
+            // tracing doesn't accept dynamic log levels
+            log::log!(level, "completed in {:?}", elapsed);
+        });
+
     let app = Router::new()
         .route("/", get_service(services::ServeFile::new("client/dist/index.html")))
         .route("/image", get(serve_image))
@@ -289,7 +327,7 @@ async fn main() -> Result<()> {
         .nest_service("/static", services::ServeDir::new("client/dist"))
         .nest_service("/assets", services::ServeDir::new("client/dist/assets"))
         .with_state(shared_state)
-        .layer(TraceLayer::new_for_http());
+        .layer(http_logger);
 
     axum::Server::bind(&"0.0.0.0:3000".parse()?)
         .serve(app.into_make_service())

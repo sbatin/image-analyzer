@@ -110,7 +110,9 @@ impl Remover {
     pub fn restore_all(&self) -> Result<()> {
         let files = self.list_removed()?;
         for file in files {
-            self.restore(&file.id)?;
+            if let Err(err) = self.restore(&file.id) {
+                tracing::error!(id = file.id, "restore failed with: {:?}", err);
+            }
         }
 
         Ok(())
