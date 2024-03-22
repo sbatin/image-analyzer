@@ -24,7 +24,7 @@ where
     for command in commands {
         match command {
             CacheCommand::Get(key, tx) => {
-                if let Err(_) = tx.send(cache.get(&key).map(|val| val.clone())) {
+                if tx.send(cache.get(&key).cloned()).is_err() {
                     tracing::error!("unable to send cached data for key {:?}", key);
                 }
             }

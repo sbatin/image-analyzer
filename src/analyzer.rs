@@ -36,18 +36,16 @@ fn list_dir_rec(files: &mut Vec<FileInfo>, dir: &Path) -> Result<()> {
         let entry = entry?;
         let path = entry.path();
         if path.is_dir() {
-            if let Err(_) = list_dir_rec(files, &path) {
+            if list_dir_rec(files, &path).is_err() {
                 tracing::error!("error reading folder content {:?}", path);
             }
-        } else {
-            if let Some(ext) = path.extension() {
-                if ext.eq_ignore_ascii_case("jpg")
-                    || ext.eq_ignore_ascii_case("jpeg")
-                    || ext.eq_ignore_ascii_case("png")
-                {
-                    let info = FileInfo::from_entry(entry)?;
-                    files.push(info);
-                }
+        } else if let Some(ext) = path.extension() {
+            if ext.eq_ignore_ascii_case("jpg")
+                || ext.eq_ignore_ascii_case("jpeg")
+                || ext.eq_ignore_ascii_case("png")
+            {
+                let info = FileInfo::from_entry(entry)?;
+                files.push(info);
             }
         }
     }
@@ -81,7 +79,7 @@ fn create_groups(hashes: &Hashes, max_dist: u32) -> Groups {
     }
 
     ds
-        .to_vec()
+        .into_vec()
         .into_iter()
         .filter(|v| v.len() > 1)
         .collect()
@@ -166,7 +164,7 @@ impl Analyzer {
         let result = iter.filter_map(|file| {
             let prev = counter.fetch_add(1, Ordering::Relaxed);
             let progress = prev * 100 / total;
-            if let Err(_) = tx.send(progress) {
+            if tx.send(progress).is_err() {
                 tracing::error!(path = file.path.to_str(), "unable to report progress");
             }
 

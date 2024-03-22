@@ -43,7 +43,7 @@ where
         P: Copy
     {
         let (key, (join_handle, mut rx)) = self.tasks.remove_entry(key)?;
-        Some(if let Ok(_) = rx.changed().await {
+        Some(if rx.changed().await.is_err() {
             let progress = *rx.borrow();
             // still in progress: put handles back to tasks
             self.tasks.insert(key, (join_handle, rx));

@@ -7,7 +7,7 @@ pub struct DisjointSet<T> {
     values: HashMap<T, usize>,
 }
 
-fn find_parent(parents: &mut Vec<usize>, key: usize) -> usize {
+fn find_parent(parents: &mut [usize], key: usize) -> usize {
     let mut k = key;
     let mut p = parents[key];
 
@@ -52,7 +52,7 @@ impl<T: Eq + Hash> DisjointSet<T> {
         self.parents[pa] = pb;
     }
 
-    pub fn to_vec(self) -> Vec<Vec<T>> {
+    pub fn into_vec(self) -> Vec<Vec<T>> {
         let mut groups = HashMap::new();
         let mut parents = self.parents;
 

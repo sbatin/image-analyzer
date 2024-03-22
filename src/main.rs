@@ -64,19 +64,19 @@ async fn task_analyzer(mut rx: mpsc::Receiver<AnalyzeCommand>) {
                     tracing::info!("analyze task {:?} completed in {:?}", req, elapsed);
                     result
                 });
-                if let Err(_) = tx.send(task_id) {
+                if tx.send(task_id).is_err() {
                     tracing::error!("unable to send response back to the client");
                 }
             }
             AnalyzeCommand::Subscribe(task_id, tx) => {
                 let rx = manager.progress(&task_id);
-                if let Err(_) = tx.send(rx) {
+                if tx.send(rx).is_err() {
                     tracing::error!("unable to send response back to the client");
                 }
             }
             AnalyzeCommand::Poll(task_id, tx) => {
                 let resp = manager.poll(&task_id).await;
-                if let Err(_) = tx.send(resp) {
+                if tx.send(resp).is_err() {
                     tracing::error!("unable to send response back to the client");
                 }
             }
@@ -226,7 +226,7 @@ async fn poll(
         .await?;
 
     let resp = rx.await?;
-    let resp = resp.ok_or_else(|| AppError::not_found())?;
+    let resp = resp.ok_or_else(AppError::not_found)?;
     Ok(Json(match resp {
         TaskResponse::Pending(progress) => AnalyzeResponse::Pending { progress },
         TaskResponse::Completed(Ok(data)) => AnalyzeResponse::Completed { data },
@@ -248,7 +248,7 @@ async fn subscribe(
         .await?;
 
     let resp = rx.await?;
-    let resp = resp.ok_or_else(|| AppError::not_found())?;
+    let resp = resp.ok_or_else(AppError::not_found)?;
     let stream = WatchStream::new(resp).map(|p| Event::default().json_data(p));
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
